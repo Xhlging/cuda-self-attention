@@ -1,0 +1,22 @@
+# Build artifacts
+build/
+*.o
+*.so
+*.d
+__pycache__/
+*.pyc
+
+# Python packaging
+*.egg-info/
+dist/
+
+# Environment helpers
+env.sh
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
