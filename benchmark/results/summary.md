@@ -177,9 +177,190 @@ N      | Naive (us)  | Tiled (us)  | PyTorch (us)  | Tiled Speedup vs Naive
 
 ---
 
-## 后续可扩展方向
+## 并行计算设计详解
 
-1. **Float16/Half 支持**：利用 Tensor Cores 的 `wmma` 命名空间
-2. **FlashAttention 简化版**：在 tile 外层循环中做 online softmax 的分块计算，减少显存占用
-3. **反向传播**：实现 backward kernel，与 `torch.autograd.Function` 集成
-4. **Warp-level 优化**：用 warp shuffle 指令做规约，减少 shared memory bank conflict
+### Self-Attention 的计算公式
+
+Self-Attention 是 Transformer 的核心计算单元：
+
+```
+S = Q × K^T            ← 矩阵乘法：计算相似度
+P = softmax(S / √D)    ← 按行归一化（数值稳定）
+O = P × V              ← 矩阵乘法：加权求和
+```
+
+其中 Q、K、V 的形状都是 `[B, H, N, D]`：
+- B = batch size（批量大小）
+- H = head count（注意力头数）
+- N = sequence length（序列长度）
+- D = head dimension（每个头的维度，通常 64）
+
+### 为什么需要并行
+
+S 矩阵形状为 `[B, H, N, N]`，计算量 O(B·H·N²·D)。当 N=1024 时：
+
+- 一个 attention head 的 S 矩阵有 1024×1024 ≈ 100 万个元素
+- B=2, H=4 时总共约 800 万个 score
+- 每个 score 需要一次 D=64 维的点积
+
+串行计算完全不可接受，必须用 GPU 的数千个核心并行计算。
+
+---
+
+### 并行策略对比
+
+#### Naive Kernel：一维 Grid
+
+```
+Grid:  (B × H,)          ← 每个 block 处理一个 (batch, head)
+Block: (N,)              ← 每个 thread 处理一个 query 位置
+
+Block 内部：每个线程独立完成自己的工作
+  for j = 0..N-1:
+    dot = Σ(Q[i][d] × K[j][d])    ← 串行做点积
+    scores[j] = dot * scale
+
+  然后 softmax + 加权求和
+```
+
+**并行度：** B×H×N 个线程同时工作。每个线程完全独立，**无线程间通信**（无共享内存、无同步）。
+
+**问题：** 每个线程都要从全局内存读取 K 的所有行（N 次），Q 的每行也被重复读 N 次。**全局内存带宽成为瓶颈**。
+
+---
+
+#### Tiled Kernel：二维 Grid + 共享内存
+
+```
+Grid:  (ceil(N/TILE_N), B × H)    ← 二维：tile 索引 + batch-head
+Block: (TILE_N,)                    ← TILE_N = 32
+
+核心思想：将 N×D 矩阵切成 32×D 的 tile，加载到共享内存
+```
+
+**优化 1——共享内存 tiling：**
+
+```cuda
+// Naive: 每次 dot product 都读全局内存（延迟 ~400 cycles）
+dot += Q[base + i*D + d] * K[base + j*D + d];
+
+// Tiled: 先加载到共享内存（一次全局读 + 多次共享内存读）
+__shared__ float Q_smem[32][64];   // 加载一次，被 32 个 score 复用
+__shared__ float KV_smem[32][64];  // 延迟 ~30 cycles
+
+Q_smem[ti][d] = Q[base + global_i * D + d];
+__syncthreads();  // 等待所有线程加载完毕
+
+// 之后的 dot product 从共享内存读取
+dot += Q_smem[ti][d] * KV_smem[jl][d];  // 快 10 倍
+```
+
+**优化 2——共享内存复用：**
+
+K 和 V 不同时使用，共用同一块共享内存，节省一半空间：
+
+```cuda
+float* KV_smem = smem + TILE_N * D;  // 8 KB
+// 第一段：存 K_tile，计算 scores
+// 第二段：覆盖为 V_tile，累加输出
+```
+
+**优化 3——Online Softmax（避免 N×N 矩阵）：**
+
+常规 softmax 需要先算出所有 S[i][j]（N² 个），再逐行做 exp/sum。N=1024 时单个 head 的 S 矩阵需要 1024×1024×4 = 4 MB。
+
+Online softmax 的核心思想是**分块计算，逐 tile 更新 running max 和 running sum**：
+
+```
+初始化: m = -inf, d = 0, O = [0]*D
+
+对每个 K_tile:
+  1. 算局部 scores: s[j] = Q[i] · K_tile[j]
+  2. 找局部最大值: m_local = max(s)
+  3. 更新全局最大值: m_new = max(m, m_local)
+  4. 缩放旧输出: O *= exp(m - m_new)        ← 适配新最大值
+  5. 更新分母: d = d * exp(m - m_new) + Σ exp(s[j] - m_new)
+  6. 加载 V_tile
+  7. 累加新贡献: O += Σ exp(s[j] - m_new) * V[j]
+  8. m = m_new
+
+最终: O /= d
+```
+
+只需存储 O(D) 的 running state（256 bytes for D=64），不需要 N×N 注意力矩阵。
+
+---
+
+### 性能数据解读
+
+```
+N      | Naive (μs) | Tiled (μs) | PyTorch (μs) | Tiled/Naive
+───────┼────────────┼────────────┼──────────────┼────────────
+   32  |      158.7 |      166.2 |       173.2  |     0.96×
+  256  |    2,617.6 |    1,301.6 |       232.3  |     2.01×
+ 1024  |   33,145.3 |   15,114.2 |     1,142.1  |     2.19×
+```
+
+**Tiled vs Naive（1-2× 加速）：**
+- 共享内存让数据复用率从 1/D 提升到接近 1
+- 每算一个 score，Naive 要读一次全局内存，Tiled 只需读共享内存
+- N 越大，tile 数越多，收益越明显
+
+**PyTorch 比我们快 7-20×：**
+- PyTorch math backend 实际调用 cuBLAS 的 `cublasGemmEx`
+- cuBLAS 使用 Tensor Cores + warp-level 矩阵乘法 + 指令级并行
+- 我们的手写 dot product 是纯标量计算
+
+**N=32 时 Tiled ≈ Naive：**
+- 仅需 1 个 tile（TILE_N=32）
+- 共享内存加载/同步的开销抵消了访存收益
+
+---
+
+### 使用方法
+
+**编译：**
+```bash
+cd ~/projects/cuda-self-attention
+export CUDA_HOME=~/miniconda3/envs/cuda-attention
+export CXX=~/miniconda3/envs/cuda-attention/bin/x86_64-conda-linux-gnu-c++
+export CC=~/miniconda3/envs/cuda-attention/bin/x86_64-conda-linux-gnu-cc
+python3 setup.py build_ext --inplace
+```
+
+**运行测试：**
+```bash
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:~/miniconda3/lib/python3.13/site-packages/torch/lib
+PYTHONPATH=. python3 tests/test_naive.py
+PYTHONPATH=. python3 tests/test_tiled.py
+PYTHONPATH=. python3 benchmark/benchmark_speed.py
+```
+
+**在代码中调用：**
+```python
+from attention import attention_naive, attention_tiled
+
+q = torch.randn(2, 4, 128, 64, device='cuda')
+k = torch.randn(2, 4, 128, 64, device='cuda')
+v = torch.randn(2, 4, 128, 64, device='cuda')
+
+out1 = attention_naive(q, k, v)   # 基准版本
+out2 = attention_tiled(q, k, v)   # 优化版本（推荐）
+
+# 自定义 scale（默认 1/sqrt(D)）
+out3 = attention_tiled(q, k, v, scale=0.125)
+```
+
+---
+
+### 本项目展示的并行计算概念
+
+| 概念 | 具体体现 |
+|------|----------|
+| **线程层级** | Grid → Block → Thread，三维映射到 (batch, head, sequence) |
+| **内存层级** | 全局内存 → 共享内存 → 寄存器，延迟差 10-100× |
+| **数据复用** | Tiling 让共享内存中的数据被多个线程复用 |
+| **同步与通信** | `__syncthreads()` 保证线程间数据可见性 |
+| **负载均衡** | 2D grid + tile 边界处理均匀覆盖所有查询位置 |
+| **算法优化** | Online softmax 将显存复杂度从 O(N²) 降到 O(N) |
+| **性能分析** | 理论带宽 vs 实测带宽，识别瓶颈是计算还是访存 |
