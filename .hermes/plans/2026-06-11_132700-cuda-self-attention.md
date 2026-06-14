@@ -826,8 +826,8 @@ N        Naive(us)    Tiled(us)    PyTorch(us)   Speedup
 - [x] Task 1: Naive kernel 在 N=64..1024 范围内与 PyTorch math 偏差 < 1e-3
 - [x] Task 2: Tiled kernel 在所有 N 上正确；与 Naive 结果一致（交叉验证）
 - [x] Task 3: Benchmark 图表完整，报告包含环境、方法、数据和分析
-- [ ] 所有中间产物可被 `git clean -fdx` 清理
-- [ ] 代码风格统一（注释英文，命名蛇形/驼峰）
+- [x] 所有中间产物可被 `git clean -fdx` 清理
+- [x] 代码风格统一（注释英文，命名蛇形/驼峰）
 
 ---
 
