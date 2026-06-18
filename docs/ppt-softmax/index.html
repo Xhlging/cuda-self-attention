@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CUDA Softmax · 从零到 Warp Reduction</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+SC:wght@200;300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fafaf8; --paper-rgb:250,250,248;
+    --ink:#0a0a0a; --ink-rgb:10,10,10;
+    --grey-1:#f0f0ee; --grey-2:#d4d4d2; --grey-3:#737373;
+    --accent:#002FA7; --accent-rgb:0,47,167; --accent-on:#ffffff;
+    --accent-bright:#5B7BFF;
+    --text-primary:#0a0a0a; --text-secondary:#525252; --text-helper:#737373;
+    --text-placeholder:#a3a3a3; --text-on-color:#ffffff;
+    --border-subtle:#e0e0e0; --border-strong:#a3a3a3;
+    --sans:"Inter","Helvetica Neue","Helvetica","Arial","Segoe UI Variable","Segoe UI",system-ui,-apple-system,sans-serif;
+    --sans-zh:"PingFang SC","Hiragino Sans GB","Source Han Sans SC","Noto Sans SC","Microsoft YaHei UI","Microsoft YaHei","微软雅黑",sans-serif;
+    --mono:"JetBrains Mono","IBM Plex Mono","SF Mono","Cascadia Code","Consolas","Courier New",ui-monospace,monospace;
+    --sp-3:8px; --sp-4:12px; --sp-5:16px; --sp-6:24px; --sp-7:32px; --sp-8:40px; --sp-9:48px; --sp-10:64px; --sp-11:80px; --sp-12:96px; --sp-13:160px;
+    --ease-prod:cubic-bezier(.2,0,.38,.9); --ease-exp:cubic-bezier(.4,.14,.3,1);
+    --ease-entry-prod:cubic-bezier(0,0,.38,.9); --ease-entry-exp:cubic-bezier(0,0,.3,1);
+    --dur-fast-1:.07s; --dur-fast-2:.11s; --dur-mod-1:.15s; --dur-mod-2:.24s; --dur-slow-1:.4s; --dur-slow-2:.7s;
+    --nav-safe-bottom:8vh;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--paper);color:var(--ink);font-family:var(--sans),var(--sans-zh);font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  canvas.bg{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;display:block;opacity:.55;mix-blend-mode:multiply;pointer-events:none}
+  body.low-power canvas.bg,body.low-power canvas.ascii-bg{display:none!important}
+
+  #deck{position:fixed;inset:0;width:10000vw;height:100vh;display:flex;flex-wrap:nowrap;transition:transform .9s cubic-bezier(.77,0,.175,1);z-index:10;will-change:transform}
+  .slide{width:100vw;height:100vh;flex:0 0 100vw;position:relative;padding:5.5vh 5vw 7vh 5vw;display:flex;flex-direction:column;overflow:hidden;background:var(--paper);color:var(--ink)}
+  .slide.accent{background:var(--accent);color:var(--text-on-color)}
+  .slide.dark{background:var(--ink);color:var(--text-on-color)}
+  .slide.grey{background:var(--grey-1)}
+  .slide.split{padding:0}
+  .slide.split .canvas-card{padding:0}
+  .canvas-card{flex:1;display:flex;flex-direction:column;padding:5.6vh 5vw 4.4vh;position:relative;overflow:hidden}
+  .chrome-min{display:flex;justify-content:space-between;align-items:start;margin-bottom:var(--sp-9);font-family:var(--mono);font-size:max(11px,.62vw);color:var(--text-helper);text-transform:uppercase;letter-spacing:.08em}
+  .slide.accent .chrome-min{color:rgba(255,255,255,.55)}
+  .slide.dark .chrome-min{color:rgba(255,255,255,.5)}
+
+  .t-meta{font-family:var(--mono);font-size:max(12px,.72vw);color:var(--text-helper);text-transform:uppercase;letter-spacing:.12em}
+  .t-cat{font-family:var(--sans);font-weight:600;font-size:max(13px,.75vw);color:var(--text-primary);text-transform:uppercase;letter-spacing:.06em}
+  .lead{font-family:var(--sans),var(--sans-zh);font-weight:300;font-size:max(17px,1.2vw);line-height:1.5;color:var(--text-secondary);letter-spacing:-.005em}
+
+  .duo-compare{display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1;align-items:stretch}
+  .duo-half{display:flex;flex-direction:column;justify-content:flex-start;padding:0 2vw}
+  .vrule{width:1px;background:var(--border-subtle);margin:0 1vw;transform-origin:top}
+
+  .four-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:1.4vw}
+  .fc-col{display:flex;flex-direction:column;gap:1vh}
+  .fc-col .t-meta{font-size:max(10px,.6vw)}
+
+  .card-fill{background:var(--grey-1);padding:2vh 1.6vw}
+  .card-accent{background:var(--accent);color:var(--accent-on);padding:2vh 1.6vw}
+  .card-accent .t-meta{color:rgba(255,255,255,.72)}
+
+  .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:1.6vw;margin-top:2vh}
+  .kpi-block{display:flex;flex-direction:column;align-items:center;gap:1vh;padding:2.4vh 1.6vw}
+  .num-mega{font-family:var(--sans);font-weight:200;font-size:min(6vw,10vh);line-height:.9;letter-spacing:-.04em}
+  .num-label{font-family:var(--mono);font-size:max(12px,.68vw);color:var(--text-helper);text-transform:uppercase}
+
+  .code-block{background:var(--grey-1);padding:2vh 1.8vw;overflow:hidden;font-family:var(--mono);font-size:max(12px,.66vw);line-height:1.7;color:var(--text-primary)}
+
+  .half{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+  .half.b-accent{background:var(--accent)}
+  .split-half{display:flex;flex:1}
+
+  .ascii-bg{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:.38}
+  .slide.dark .canvas-card{background:var(--ink)}
+
+  #nav{position:fixed;bottom:2.2vh;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:100}
+  #nav span{width:8px;height:8px;background:var(--border-subtle);transition:background .3s}
+  #nav span.active{background:var(--accent)}
+  .slide.accent ~ #nav span{background:rgba(255,255,255,.18)}
+  .slide.accent ~ #nav span.active{background:#fff}
+  .slide.dark ~ #nav span{background:rgba(255,255,255,.18)}
+  .slide.dark ~ #nav span.active{background:#fff}
+
+  body.low-power #nav span{background:var(--border-subtle)!important}
+  body.low-power #nav span.active{background:var(--accent)!important}
+  body.low-power .ascii-bg,body.low-power canvas.bg{display:none!important}
+  .low-power-toggle{position:fixed;bottom:2.2vh;right:2.4vw;font-family:var(--mono);font-size:11px;color:var(--text-helper);z-index:100;cursor:pointer;user-select:none}
+</style>
+</head>
+<body>
+
+<canvas class="bg" id="bg-canvas" aria-hidden="true"></canvas>
+
+<div id="deck">
+
+<!-- ===== P1 · Cover ===== -->
+<section class="slide accent">
+  <div class="canvas-card">
+    <canvas class="ascii-bg" aria-hidden="true"></canvas>
+    <div class="chrome-min">
+      <div class="l">CUDA 并行计算 · 十分钟入门</div>
+      <div class="r">01 / 10</div>
+    </div>
+    <div style="flex:1;padding:0;display:grid;grid-template-rows:auto 1fr auto;gap:2.6vh">
+      <div class="t-meta" style="color:rgba(255,255,255,.78);letter-spacing:.22em">FROM SCRATCH</div>
+      <h1 style="align-self:center;font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(9vw,16vh);line-height:.94;letter-spacing:-.025em;color:#fff">用 CUDA 实现<br>一个 <span style="font-style:italic;font-weight:300">Softmax</span></h1>
+      <div style="display:grid;grid-template-rows:auto auto;gap:1.6vh;border-top:1px solid rgba(255,255,255,.22);padding-top:2vh">
+        <div class="lead" style="max-width:52ch;color:rgba(255,255,255,.86);font-weight:300">Naive 串行 → Warp 并行归约 → 4.8× 加速</div>
+        <div style="display:flex;justify-content:space-between;align-items:end">
+          <div class="t-meta" style="color:rgba(255,255,255,.6)">GPU: RTX 4060 · CUDA 13.3</div>
+          <div class="t-meta" style="color:rgba(255,255,255,.6)">→ 按方向键翻页</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P2 · What is Softmax ===== -->
+<section class="slide light">
+  <div class="canvas-card">
+    <div class="chrome-min"><div class="l">WHAT · 02</div><div class="r">02 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:3vh">
+      <div style="display:flex;flex-direction:column;gap:1.4vh">
+        <div class="t-meta">THE FORMULA</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em">Softmax 是什么？</h2>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1">
+        <div class="card-fill" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2vh">
+          <div style="font-family:var(--sans);font-weight:200;font-size:min(5vw,9vh);letter-spacing:-.02em">softmax(x<sub>i</sub>)</div>
+          <div style="width:60%;height:1px;background:var(--border-subtle)"></div>
+          <div style="font-family:var(--sans);font-weight:200;font-size:min(3.6vw,6vh);letter-spacing:-.02em">e<sup>x<sub>i</sub></sup></div>
+          <div style="width:40%;height:1px;background:var(--border-subtle)"></div>
+          <div style="font-family:var(--sans);font-weight:200;font-size:min(3.6vw,6vh);letter-spacing:-.02em">&Sigma; e<sup>x<sub>j</sub></sup></div>
+        </div>
+        <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh">
+          <div class="t-cat" style="color:var(--accent)">直观理解</div>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-primary);font-weight:400">
+            把一组任意实数 → 转成一组<b>概率</b>。
+          </p>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-secondary);font-weight:400">
+            大的数 → 高概率 (接近 1)<br>
+            小的数 → 低概率 (接近 0)<br>
+            全部加起来 = 1
+          </p>
+          <div style="margin-top:1vh;font-family:var(--mono);font-size:max(13px,.72vw);color:var(--text-secondary);line-height:1.6">
+            例: softmax([2, 1, -1])<br>
+            = [0.67, 0.24, 0.09]
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P3 · Why GPU ===== -->
+<section class="slide light">
+  <div class="canvas-card">
+    <div class="chrome-min"><div class="l">WHY GPU · 03</div><div class="r">03 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.6vh">
+      <div style="display:flex;flex-direction:column;gap:1.4vh">
+        <div class="t-meta">THE PROBLEM</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em">为什么要用 GPU 算 Softmax？</h2>
+      </div>
+      <div class="duo-compare">
+        <div class="duo-half">
+          <span class="t-cat" style="color:var(--accent)">场景</span>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-primary);font-weight:400;margin-top:2vh">
+            大语言模型（如 ChatGPT）每一层、每个 token 都要算一次 Softmax。
+          </p>
+          <p style="font-family:var(--mono);font-size:max(13px,.72vw);color:var(--text-secondary);line-height:1.7;margin-top:1.6vh">
+            例如: 32,768 个 token<br>
+            每个 token 有 4,096 维<br>
+            = 每次推理要算 <strong style="color:var(--accent)">32,768 次</strong> Softmax
+          </p>
+        </div>
+        <span class="vrule"></span>
+        <div class="duo-half">
+          <span class="t-cat" style="color:var(--accent)">GPU 方案</span>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-primary);font-weight:400;margin-top:2vh">
+            每个线程独立算一行 Softmax。<br>
+            几千行 → 几千个线程同时算。
+          </p>
+          <p style="font-family:var(--mono);font-size:max(13px,.72vw);color:var(--accent);line-height:1.7;margin-top:1.6vh">
+            问题: 同一行内，怎么让<br>
+            <strong>32 个线程协作</strong>加速？
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P4 · Naive Kernel ===== -->
+<section class="slide light">
+  <div class="canvas-card">
+    <div class="chrome-min"><div class="l">NAIVE · 04</div><div class="r">04 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.4vh">
+      <div style="display:flex;flex-direction:column;gap:1.4vh">
+        <div class="t-meta">VERSION 1</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5vw,9vh);line-height:.96;letter-spacing:-.035em">Naive Softmax: 每个线程单干</h2>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw">
+        <div>
+          <div class="code-block" style="margin-bottom:1.6vh">
+            <span style="color:var(--text-helper)">// 线程 tid 独立计算第 row 行的 softmax</span><br>
+            <span style="color:var(--accent)">// 第一遍: 找最大值</span><br>
+            max = x[0]<br>
+            <b>for</b> i=1..D-1: max = max(max, x[i])<br><br>
+            <span style="color:var(--accent)">// 第二遍: 算 exp + 求和</span><br>
+            sum = 0<br>
+            <b>for</b> i=0..D-1:<br>
+            &nbsp;&nbsp;y[i] = exp(x[i] - max)<br>
+            &nbsp;&nbsp;sum += y[i]<br><br>
+            <span style="color:var(--accent)">// 第三遍: 归一化</span><br>
+            <b>for</b> i=0..D-1: y[i] /= sum
+          </div>
+        </div>
+        <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh">
+          <div class="t-cat" style="color:var(--accent)">问题在哪？</div>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-primary);font-weight:400">
+            每个线程<b>串行</b>遍历 D 个元素三次。
+          </p>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-secondary);font-weight:400">
+            如果 D=1024，一个线程要遍历 3072 次。<br>
+            线程之间<b>完全没有协作</b>。
+          </p>
+          <div style="margin-top:auto;font-family:var(--mono);font-size:max(13px,.72vw);color:var(--text-primary);line-height:1.7">
+            <span style="color:var(--text-helper)">Grid:</span> [rows/256]<br>
+            <span style="color:var(--text-helper)">Block:</span> [256]<br>
+            <span style="color:var(--text-helper)">每线程:</span> 串行三遍
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P5 · Warp concept ===== -->
+<section class="slide dark">
+  <div class="canvas-card">
+    <div class="chrome-min"><div class="l">WARP · 05</div><div class="r">05 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.6vh">
+      <div style="display:flex;flex-direction:column;gap:1.4vh">
+        <div class="t-meta" style="color:rgba(255,255,255,.6)">KEY CONCEPT</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em;color:var(--text-on-color)">Warp: GPU 的最小调度单位</h2>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1">
+        <div class="card-fill" style="background:rgba(255,255,255,.08);display:flex;flex-direction:column;gap:1.6vh">
+          <div class="t-cat" style="color:var(--accent-bright)">什么是 Warp？</div>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:rgba(255,255,255,.86);font-weight:400">
+            32 条线程编成一组 = 1 个 Warp<br>
+            GPU 以 Warp 为单位调度执行
+          </p>
+          <div style="font-family:var(--mono);font-size:max(13px,.72vw);color:rgba(255,255,255,.6);line-height:1.8">
+            线程 0 ─┬─ Warp 0<br>
+            线程 1 ─┤<br>
+            ...&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+            线程 31─┘
+          </div>
+        </div>
+        <div class="card-fill" style="background:rgba(255,255,255,.08);display:flex;flex-direction:column;gap:1.6vh">
+          <div class="t-cat" style="color:var(--accent-bright)">Warp 的特殊能力</div>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:rgba(255,255,255,.86);font-weight:400">
+            <strong>__shfl_down_sync</strong>: 同 Warp 内的线程可以<b>直接交换数据</b>——不需要共享内存！
+          </p>
+          <p style="font-family:var(--mono);font-size:max(13px,.72vw);color:var(--accent-bright);line-height:1.8;margin-top:1vh">
+            线程 i 收到线程 i+offset 的值<br>
+            → 蝴蝶归约 → log₂(32)=5 步<br>
+            → 32 个值合并成 1 个
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P6 · Warp Shuffle 动画 ===== -->
+<section class="slide light">
+  <div class="canvas-card">
+    <div class="chrome-min"><div class="l">SHUFFLE · 06</div><div class="r">06 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.4vh">
+      <div style="display:flex;flex-direction:column;gap:1.4vh">
+        <div class="t-meta">BUTTERFLY REDUCTION</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5vw,9vh);line-height:.96;letter-spacing:-.035em">蝴蝶归约：32 个数 → 1 个数，只需 5 步</h2>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1.2vw;flex:1">
+        <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;gap:1vh;padding:1.6vh .8vw">
+          <div class="t-cat" style="font-size:max(11px,.6vw)">offset=16</div>
+          <div style="font-family:var(--mono);font-size:max(10px,.52vw);line-height:1.4;color:var(--text-secondary);text-align:center">
+            0←0+16<br>1←1+17<br>...<br>15←15+31
+          </div>
+          <div style="margin-top:.6vh;font-family:var(--mono);font-size:max(10px,.52vw);color:var(--accent)">→ 16 个结果</div>
+        </div>
+        <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;gap:1vh;padding:1.6vh .8vw">
+          <div class="t-cat" style="font-size:max(11px,.6vw)">offset=8</div>
+          <div style="font-family:var(--mono);font-size:max(10px,.52vw);line-height:1.4;color:var(--text-secondary);text-align:center">
+            0←0+8<br>1←1+9<br>...<br>7←7+15
+          </div>
+          <div style="margin-top:.6vh;font-family:var(--mono);font-size:max(10px,.52vw);color:var(--accent)">→ 8 个结果</div>
+        </div>
+        <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;gap:1vh;padding:1.6vh .8vw">
+          <div class="t-cat" style="font-size:max(11px,.6vw)">offset=4</div>
+          <div style="font-family:var(--mono);font-size:max(10px,.52vw);line-height:1.4;color:var(--text-secondary);text-align:center">
+            0←0+4<br>...<br>3←3+7
+          </div>
+          <div style="margin-top:.6vh;font-family:var(--mono);font-size:max(10px,.52vw);color:var(--accent)">→ 4 个结果</div>
+        </div>
+        <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;gap:1vh;padding:1.6vh .8vw">
+          <div class="t-cat" style="font-size:max(11px,.6vw)">offset=2</div>
+          <div style="font-family:var(--mono);font-size:max(10px,.52vw);line-height:1.4;color:var(--text-secondary);text-align:center">
+            0←0+2<br>1←1+3
+          </div>
+          <div style="margin-top:.6vh;font-family:var(--mono);font-size:max(10px,.52vw);color:var(--accent)">→ 2 个结果</div>
+        </div>
+        <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;gap:1vh;padding:1.6vh .8vw">
+          <div class="t-cat" style="font-size:max(11px,.6vw)">offset=1</div>
+          <div style="font-family:var(--mono);font-size:max(10px,.52vw);line-height:1.4;color:var(--text-secondary);text-align:center">
+            0←0+1
+          </div>
+          <div style="margin-top:.6vh;font-family:var(--mono);font-size:max(10px,.52vw);color:var(--accent)">→ 1 个结果 ✅</div>
+        </div>
+      </div>
+      <div class="card-accent" style="text-align:center;padding:2vh 2vw">
+        <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.6;color:var(--accent-on);font-weight:400">
+          <strong>关键:</strong> 最终结果只在 <strong>线程 0</strong> 手里！其他 31 个线程拿到的是中间结果。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P7 · 经典 Bug ===== -->
+<section class="slide light">
+  <div class="canvas-card">
+    <div class="chrome-min"><div class="l">BUG · 07</div><div class="r">07 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.6vh">
+      <div style="display:flex;flex-direction:column;gap:1.4vh">
+        <div class="t-meta">THE CLASSIC TRAP</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.2vw,9vh);line-height:.96;letter-spacing:-.035em">经典 Bug: 忘了广播</h2>
+      </div>
+      <div class="duo-compare">
+        <div class="duo-half">
+          <span class="t-cat" style="color:var(--text-helper)">❌ 错误的代码</span>
+          <div class="code-block" style="margin-top:1.6vh">
+            <span style="color:var(--text-helper)">// 归约: 只有线程0拿到总和</span><br>
+            <b>for</b> (offset=16;offset&gt;0;offset/=2)<br>
+            &nbsp;&nbsp;sum += shfl_down(sum, offset);<br>
+            <br>
+            <span style="color:var(--text-helper)">// ❌ 线程1-31 手里的 sum 是错的！</span><br>
+            inv_sum = 1.0 / sum;<br>
+            <b>for</b> i: y[i] *= inv_sum;
+          </div>
+          <div style="margin-top:1.4vh;padding:1vh 1.2vw;background:var(--grey-1)">
+            <span style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--text-primary)">结果: 误差 0.18 → 完全错误</span>
+          </div>
+        </div>
+        <span class="vrule"></span>
+        <div class="duo-half">
+          <span class="t-cat" style="color:var(--accent)">✅ 正确的代码</span>
+          <div class="code-block" style="margin-top:1.6vh">
+            <span style="color:var(--text-helper)">// 归约: 只有线程0拿到总和</span><br>
+            <b>for</b> (offset=16;offset&gt;0;offset/=2)<br>
+            &nbsp;&nbsp;sum += shfl_down(sum, offset);<br>
+            <br>
+            <span style="color:var(--accent)">// ✅ 广播线程0的值给所有人</span><br>
+            sum = __shfl_sync(mask, sum, 0);<br>
+            inv_sum = 1.0 / sum;<br>
+            <b>for</b> i: y[i] *= inv_sum;
+          </div>
+          <div style="margin-top:1.4vh;padding:1vh 1.2vw;background:var(--grey-1)">
+            <span style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent)">结果: 误差 3.7e-09 → 完全正确 ✅</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P8 · Warp Kernel 完整代码 ===== -->
+<section class="slide light">
+  <div class="canvas-card">
+    <div class="chrome-min"><div class="l">CODE · 08</div><div class="r">08 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2vh">
+      <div style="display:flex;flex-direction:column;gap:1vh">
+        <div class="t-meta">WARP SOFTMAX KERNEL</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(4.6vw,8vh);line-height:.96;letter-spacing:-.035em">完整代码: 35 行实现 Warp Softmax</h2>
+      </div>
+      <div class="code-block" style="flex:1;overflow-y:auto">
+<span style="color:var(--text-helper)">// Grid: [rows], Block: [32] — 一个 Warp 处理一行</span>
+<b>template</b> &lt;<b>int</b> D&gt;
+__global__ <b>void</b> softmax_warp(<b>const float</b>* x, <b>float</b>* y, <b>int</b> rows, <b>int</b> stride) {
+    <b>int</b> row = blockIdx.x;                <span style="color:var(--text-helper)">// 一行一个 Block</span>
+    <b>int</b> lane = threadIdx.x;               <span style="color:var(--text-helper)">// 线程在 Warp 内的编号 (0-31)</span>
+    <b>if</b> (row &gt;= rows) <b>return</b>;
+    x += row * stride;  y += row * stride;
+
+    <span style="color:var(--accent)">// === Step 1: 每个线程处理 D/32 个元素，找局部最大值 ===</span>
+    <b>float</b> max_val = -INFINITY;
+    <b>for</b> (<b>int</b> i = lane; i &lt; D; i += 32)
+        max_val = fmaxf(max_val, x[i]);
+
+    <span style="color:var(--accent)">// === Step 2: 蝴蝶归约，32 个局部 max → 1 个全局 max ===</span>
+    <b>for</b> (<b>int</b> offset = 16; offset &gt; 0; offset /= 2)
+        max_val = fmaxf(max_val, __shfl_down_sync(0xFFFFFFFF, max_val, offset));
+    <span style="color:var(--accent)">max_val = __shfl_sync(0xFFFFFFFF, max_val, 0); // ← 广播！</span>
+
+    <span style="color:var(--accent)">// === Step 3: 算 exp + warp 归约求和 ===</span>
+    <b>float</b> sum_val = 0;
+    <b>for</b> (<b>int</b> i = lane; i &lt; D; i += 32) {
+        <b>float</b> e = __expf(x[i] - max_val);
+        y[i] = e;  sum_val += e;
+    }
+    <b>for</b> (<b>int</b> offset = 16; offset &gt; 0; offset /= 2)
+        sum_val += __shfl_down_sync(0xFFFFFFFF, sum_val, offset);
+    <span style="color:var(--accent)">sum_val = __shfl_sync(0xFFFFFFFF, sum_val, 0); // ← 广播！</span>
+
+    <span style="color:var(--accent)">// === Step 4: 归一化 ===</span>
+    <b>float</b> inv_sum = 1.0f / sum_val;
+    <b>for</b> (<b>int</b> i = lane; i &lt; D; i += 32)
+        y[i] *= inv_sum;
+}
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P9 · Performance ===== -->
+<section class="slide light">
+  <div class="canvas-card">
+    <div class="chrome-min"><div class="l">BENCHMARK · 09</div><div class="r">09 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.6vh">
+      <div style="display:flex;flex-direction:column;gap:1.4vh">
+        <div class="t-meta">PERFORMANCE · rows=32768 · RTX 4060</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5vw,9vh);line-height:.96;letter-spacing:-.035em">性能: Warp 归约 4–7× 更快</h2>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1.4vw;flex:1">
+        <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2vh">
+          <div class="t-meta" style="font-size:max(10px,.6vw)">D = 256</div>
+          <div class="num-mega" style="font-size:min(5vw,8vh)">4.3×</div>
+          <div class="num-label">Naive 2045 → Warp 477 μs</div>
+        </div>
+        <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2vh">
+          <div class="t-meta" style="font-size:max(10px,.6vw)">D = 512</div>
+          <div class="num-mega" style="font-size:min(5vw,8vh)">4.3×</div>
+          <div class="num-label">Naive 3117 → Warp 727 μs</div>
+        </div>
+        <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2vh">
+          <div class="t-meta" style="font-size:max(10px,.6vw)">D = 1024</div>
+          <div class="num-mega" style="font-size:min(5vw,8vh)">4.8×</div>
+          <div class="num-label">Naive 3179 → Warp 657 μs</div>
+        </div>
+        <div class="card-accent" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2vh">
+          <div class="t-meta" style="font-size:max(10px,.6vw);color:rgba(255,255,255,.72)">vs torch</div>
+          <div class="num-mega" style="font-size:min(5vw,8vh);color:var(--accent-on)">~1×</div>
+          <div class="num-label" style="color:rgba(255,255,255,.72)">torch 657 → ours 657 μs</div>
+        </div>
+      </div>
+      <div class="card-fill" style="padding:2vh 2vw;text-align:center">
+        <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.9vw);line-height:1.6;color:var(--text-primary);font-weight:400">
+          🔑 <strong>为什么能加速？</strong> Naive 每线程串行遍历 3×D 次。Warp 版 32 线程各自只遍历 D/32 次，然后用 warp shuffle 合并——<strong>工作量分给了 32 个人</strong>。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== P10 · Closing ===== -->
+<section class="slide split">
+  <div class="canvas-card">
+    <div class="split-half">
+      <div class="half b-accent" style="padding:5.6vh 3.6vw 4.4vh;justify-content:space-between;position:relative;overflow:hidden">
+        <canvas class="ascii-bg" aria-hidden="true"></canvas>
+        <div class="chrome-min" style="margin-bottom:0;position:relative;z-index:1">
+          <div class="l">10 / 10</div><div class="r">CLOSING</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2vh;position:relative;z-index:1">
+          <div class="t-meta" style="color:rgba(255,255,255,.78);letter-spacing:.22em;margin-bottom:1.6vh">TAKEAWAY</div>
+          <h2 style="font-family:var(--sans),var(--sans-zh);font-size:min(7vw,12vh);line-height:.94;letter-spacing:-.025em;font-weight:200;color:#fff">32 条线程<br><span style="font-style:italic;font-weight:300">协作</span> > 1 条线程<br><span style="font-style:italic;font-weight:300">单干</span></h2>
+          <div style="font-family:var(--sans),var(--sans-zh);font-size:max(14px,1vw);line-height:1.6;color:rgba(255,255,255,.82);font-weight:300;max-width:34ch;margin-top:1.4vh">用 CUDA 实现 Softmax 的完整旅程.</div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:end;border-top:1px solid rgba(255,255,255,.22);padding-top:2vh;position:relative;z-index:1">
+          <div class="t-meta" style="color:rgba(255,255,255,.62)">github.com/Xhlging/cuda-self-attention</div>
+          <div class="t-meta" style="color:rgba(255,255,255,.62)">26.06.18</div>
+        </div>
+      </div>
+      <div class="half" style="padding:5.6vh 3.6vw 4.4vh;justify-content:space-between">
+        <div class="chrome-min"><div class="l">TAKEAWAYS</div><div class="r">03 POINTS</div></div>
+        <div style="display:flex;flex-direction:column;gap:0">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle)">
+            <div style="font-family:var(--sans);font-weight:200;font-size:min(4.4vw,7.8vh);line-height:.9">01</div>
+            <div>
+              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;margin-bottom:1vh">线程协作 > 线程单干</h3>
+              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">Warp 内 32 线程分治 + 归约，把串行的 D 次操作变成 D/32 次。</p>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle)">
+            <div style="font-family:var(--sans);font-weight:200;font-size:min(4.4vw,7.8vh);line-height:.9">02</div>
+            <div>
+              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;margin-bottom:1vh">归约后必须广播</h3>
+              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">__shfl_down 归约后只有 lane 0 有正确结果——忘了 __shfl_sync 广播，全错了。</p>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle);border-bottom:2px solid var(--accent)">
+            <div style="font-family:var(--sans);font-weight:200;font-size:min(4.4vw,7.8vh);line-height:.9;color:var(--accent)">03</div>
+            <div>
+              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;color:var(--accent);margin-bottom:1vh">简单算法也能讲出深度</h3>
+              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">Softmax 只有一个公式，但并行化过程中遇到的 warp 协作、蝴蝶归约、广播陷阱，都是 GPU 编程的核心概念。</p>
+            </div>
+          </div>
+        </div>
+        <div class="t-meta" style="color:var(--text-helper);text-align:right">→ 完</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- #deck -->
+
+<div id="nav"></div>
+<div class="low-power-toggle" title="切换低功耗模式 (停止动画)">B 静态</div>
+
+<script>
+/* ============ WebGL bg ============ */
+(function(){
+  const c=document.getElementById('bg-canvas'),gl=c.getContext('webgl',{alpha:!0,antialias:!0});
+  if(!gl)return;
+  const vs='attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}';
+  const fs='precision highp float;uniform vec2 r;uniform float t;uniform vec2 m;uniform float d;uniform vec3 a;float g(vec2 u,float s,float h){vec2 g=abs(fract(u/s)-.5);return 1.-smoothstep(h-.005,h+.005,min(g.x,g.y));}void main(){vec2 u=gl_FragCoord.xy/r.xy;float as=r.x/r.y;vec2 p=u;p.x*=as;vec2 dr=vec2(t*.008,t*.005);vec2 gp=p+dr;float mg=g(gp,.12,.012);float sg=g(gp,.024,.04)*.4;vec2 mm=m;mm.x*=as;float md=length(p-mm);float mi=exp(-md*4.)*.5;float gs=(mg+sg*.5)*(.45+mi);vec2 dg=fract(gp*50.)-.5;float dm=1.-smoothstep(.05,.14,length(dg));float w=sin(gp.x*1.4+t*.15)*cos(gp.y*1.6-t*.12);dm*=smoothstep(-.3,.6,w)*.6;vec3 lc=mix(vec3(.08),vec3(.92),d);vec3 bc=mix(vec3(.97,.97,.96),vec3(.06,.06,.07),d);vec3 col=bc;col=mix(col,lc,gs*.55);col=mix(col,lc,dm*.35);col=mix(col,a,mi*.18);gl_FragColor=vec4(col,1);}';
+  function mk(t,s){const sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);return sh}
+  const pg=gl.createProgram();gl.attachShader(pg,mk(gl.VERTEX_SHADER,vs));gl.attachShader(pg,mk(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pg);gl.useProgram(pg);
+  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+  const pos=gl.getAttribLocation(pg,'p');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,!1,0,0);
+  const uR=gl.getUniformLocation(pg,'r'),uT=gl.getUniformLocation(pg,'t'),uM=gl.getUniformLocation(pg,'m'),uD=gl.getUniformLocation(pg,'d'),uA=gl.getUniformLocation(pg,'a');
+  const mouse={x:.5,y:.5};addEventListener('mousemove',e=>{mouse.x=e.clientX/innerWidth;mouse.y=1-e.clientY/innerHeight});
+  let raf;function draw(ts){const d=document.body.classList.contains('dark-bg')?1:0;
+    c.width=innerWidth;c.height=innerHeight;gl.viewport(0,0,c.width,c.height);
+    gl.uniform2f(uR,c.width,c.height);gl.uniform1f(uT,ts*.001);gl.uniform2f(uM,mouse.x,mouse.y);gl.uniform1f(uD,d);
+    gl.uniform3f(uA,0/255,47/255,167/255);gl.drawArrays(gl.TRIANGLES,0,6);raf=requestAnimationFrame(draw)}
+  if(!document.body.classList.contains('low-power'))raf=requestAnimationFrame(draw);
+  document._stopGL=()=>{if(raf)cancelAnimationFrame(raf),raf=null};
+})();
+
+/* ASCII bg */
+(function(){
+  document.querySelectorAll('canvas.ascii-bg').forEach(c=>{
+    const ctx=c.getContext('2d');c.width=200;c.height=120;
+    const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=<>[]{}|;:,.~';
+    let raf;function draw(ts){
+      if(document.body.classList.contains('low-power')){cancelAnimationFrame(raf);return}
+      ctx.fillStyle='rgba(255,255,255,0.04)';ctx.fillRect(0,0,c.width,c.height);
+      ctx.fillStyle='rgba(255,255,255,0.3)';ctx.font='8px monospace';
+      for(let i=0;i<80;i++){
+        const x=(Math.sin(ts*.0003+i*.7)+1)*.5*c.width;
+        const y=(Math.cos(ts*.0004+i*.9)+1)*.5*c.height;
+        ctx.fillText(chars[Math.floor((Math.sin(ts*.001+i)*.5+.5)*chars.length)],x,y);
+      }
+      raf=requestAnimationFrame(draw)
+    }
+    if(!document.body.classList.contains('low-power'))raf=requestAnimationFrame(draw);
+    c._stop=()=>{if(raf)cancelAnimationFrame(raf),raf=null}
+  });
+})();
+
+/* Navigation */
+(function(){
+  const deck=document.getElementById('deck'),nav=document.getElementById('nav');
+  const slides=deck.querySelectorAll('.slide');const N=slides.length;
+  let idx=0;
+  for(let i=0;i<N;i++){const d=document.createElement('span');if(i===0)d.className='active';d.onclick=()=>go(i);nav.appendChild(d)}
+  function go(i){idx=Math.max(0,Math.min(N-1,i));deck.style.transform=`translateX(-${idx*100}vw)`;nav.querySelectorAll('span').forEach((d,j)=>{d.className=j===idx?'active':''})}
+  addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==='ArrowDown')go(idx+1);if(e.key==='ArrowLeft'||e.key==='ArrowUp')go(idx-1);if(e.key==='b'||e.key==='B'){document.body.classList.toggle('low-power');if(document.body.classList.contains('low-power')){if(document._stopGL)document._stopGL();document.querySelectorAll('canvas.ascii-bg').forEach(c=>{if(c._stop)c._stop()})}else{location.reload()}}if(e.key==='Escape'){document.getElementById('esc-overlay')?.remove();const ov=document.createElement('div');ov.id='esc-overlay';ov.style='position:fixed;inset:0;z-index:200;background:rgba(10,10,10,.94);display:flex;flex-wrap:wrap;align-content:flex-start;gap:1.2vh 1.2vw;padding:4vh 4vw;overflow-y:auto';for(let j=0;j<N;j++){const t=document.createElement('div');t.style='width:18vw;aspect-ratio:16/9;background:var(--grey-1);cursor:pointer;padding:1.2vh 1vw;font-size:11px;font-family:var(--mono)';t.textContent=`${j+1}. ${slides[j].querySelector('h1,h2')?.textContent||''}`;t.onclick=()=>{ov.remove();go(j)};ov.appendChild(t)}ov.onclick=e=>{if(e.target===ov)ov.remove()};document.body.appendChild(ov)}});
+  let ts;addEventListener('wheel',e=>{const now=Date.now();if(ts&&now-ts<800)return;ts=now;go(idx+(e.deltaY>0?1:-1))},{passive:!0});
+  let tx=null;addEventListener('touchstart',e=>{tx=e.touches[0].clientX});addEventListener('touchend',e=>{if(tx!==null){const d=e.changedTouches[0].clientX-tx;if(Math.abs(d)>50)go(idx+(d<0?1:-1));tx=null}});
+})();
+</script>
+</body>
+</html>
