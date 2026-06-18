@@ -269,9 +269,11 @@ inv_sum = 1.0f / sum_val;
             <strong>__shfl_down_sync</strong><br>同 Warp 内的线程可以<br><b>直接交换寄存器数据</b><br>不需要共享内存！
           </p>
           <p style="font-family:var(--mono);font-size:max(17px,.95vw);color:var(--accent-bright);line-height:2;margin-top:1vh;font-weight:500">
-            线程 i 收到 i+offset 的值<br>
-            蝴蝶归约 → log₂(32) = 5 步<br>
-            32 个值 → 合并为 1 个
+            <strong style="font-size:1.1em">offset = 步长</strong><br>
+            线程 i 从 线程 i+offset 拿值<br>
+            从 16 开始，每次折半:<br>
+            16 → 8 → 4 → 2 → 1<br>
+            log₂(32) = 5 步，32→1
           </p>
         </div>
       </div>
