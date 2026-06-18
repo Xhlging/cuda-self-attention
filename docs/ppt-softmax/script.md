@@ -2,12 +2,28 @@
 
 > 打开 `docs/ppt-softmax/index.html` 跟着翻页。需要背景：`for` 循环 + `exp(x)`。
 
+## 三种并行模型速览（备课时看一眼，课上可以不讲）
+
+如果你学过并行计算，这里快速对照一下：
+
+| | OpenMP | MPI | CUDA |
+|---|---|---|---|
+| 在哪跑 | 一台机器多核 CPU | 多台机器 | 一块 GPU |
+| 怎么通信 | 共享内存（自动） | 显式收发消息 | 共享内存 + warp shuffle |
+| 线程/进程数 | 几十 | 几百~几千 | **几万~几十万** |
+| 同步方式 | `#pragma omp barrier` | `MPI_Barrier` | `__syncthreads()` |
+| 归约操作 | `#pragma omp reduction(+:sum)` | `MPI_Reduce` / `MPI_Allreduce` | `__shfl_down_sync` 蝴蝶归约 |
+
+核心区别：OpenMP 在 CPU 上做几十路并行，MPI 在集群上做跨机器通信，CUDA 在 GPU 上做**几万路并行**。今天的 Warp Shuffle 本质上就是硬件实现的 **MPI_Allreduce**——只不过 32 个"进程"跑在同一个 Warp 里，归约只需 5 个时钟周期。
+
 ---
 
 ## 第 1 页 · 封面（30 秒）
 
 **说：**
 > 大家好，今天讲一个很简单的算法——Softmax。它是 ChatGPT 这类大模型里每层都在用的东西。我会从最笨的 GPU 实现讲起，然后让 32 条线程协作，把它加速 5 倍。只需要会 for 循环就能听懂。
+
+> （如果你学过 OpenMP 或 MPI：今天做的事本质上就是在 GPU 上实现一个超快的并行归约——类似 `MPI_Allreduce`，但是 32 路、5 个周期完成。）
 
 ---
 
@@ -70,6 +86,8 @@
 
 > 如果把 offset 不断折半——16、8、4、2、1——5 步之后，32 个值就合并成了 1 个。这叫蝴蝶归约。log₂(32) = 5。
 
+> **类比**：如果你写过 MPI，Warp 就像一个只有 32 个 rank 的 `MPI_Comm`。`__shfl_down_sync` 相当于在 Warp 内做 `MPI_Reduce`——但 MPI 归约要经过网络协议栈，耗时微秒级；Warp 归约是片上硬件直连，5 步加起来约 5 个时钟周期（纳秒级）。OpenMP 用户也可以把 Warp 理解成一个 32 线程的 `#pragma omp parallel` 小组，shuffle 就是组内比 `reduction` 更底层的操作。
+
 **为什么这样讲：** Warp 是此课第二个核心概念（第一个是"课桌"内存类比，但 softmax 不需要强调那个）。要讲清楚三点：32 线程编组、可以直接交换数据、折半合并只要 5 步。
 
 ---
@@ -107,7 +125,9 @@
 **指底部"两步缺一不可"：**
 > 归约负责把 32 个值合并为 1 个；广播负责把这 1 个值复制给人人。两步加起来，所有线程就能拿到正确的全局结果。
 
-**为什么这样讲：** 这是整节课的逻辑核心。不是"bug 故事"，而是归约机制的固有性质——蝶形网络的设计决定了最终结果只会落在一个节点上。广播不是补丁，是归约的必要组成部分。
+> **MPI 类比**：蝴蝶归约 = `MPI_Reduce`（结果只在 root 进程），广播 = `MPI_Bcast`（从 root 发给大家）。两步加起来 = `MPI_Allreduce`。CUDA 没有一步到位的 `Allreduce` 指令，所以我们要手写 Reduce + Bcast。OpenMP 的 `reduction(+:sum)` 则是编译器帮你自动做了这两步——你写的 `sum += x`，编译器展开成归约树 + 广播。
+
+**为什么这样讲：** 用 MPI 术语让概念落地——每个学过并行计算的人都认识 Reduce/Bcast/Allreduce。CUDA 只是让你手写了这两步，本质一模一样。
 
 ---
 
@@ -189,6 +209,13 @@
 
 **Q: 跨步访问为什么不直接每个线程负责连续的一段？**
 > 因为 GPU 全局内存有合并访问规则——相邻线程访问相邻地址，一次内存事务能同时服务 32 个线程。如果线程 0 管 x[0..31]，线程 1 管 x[32..63]，那就是相邻线程访问相差 32 的地址，事务效率低。跨步访问让相邻线程始终访问相邻地址，最大化带宽。
+
+**Q: 学过 MPI/OpenMP，和 CUDA 怎么对应？**
+> 核心对应关系：
+> - OpenMP `#pragma omp parallel for` ≈ CUDA 的 Grid/Block 线程启动
+> - MPI `MPI_Allreduce` ≈ Warp Shuffle 蝴蝶归约 + 广播（但快 1000 倍，因为是片上硬件）
+> - OpenMP `#pragma omp barrier` ≈ CUDA `__syncthreads()`
+> - 关键区别：OpenMP 管几十个线程，MPI 管跨机器进程，CUDA 管**几万**个线程。CUDA 的 Warp Shuffle 是三者中最底层、最快的线程间通信机制。
 
 ---
 
