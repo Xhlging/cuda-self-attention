@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CUDA Softmax · 从零到 Warp Reduction</title>
+<title>Warp Shuffle 并行归约 · 以 Softmax 为例</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+SC:wght@200;300;400;500;700;900&display=swap" rel="stylesheet">
@@ -105,17 +105,16 @@
   <div class="canvas-card">
     <canvas class="ascii-bg" aria-hidden="true"></canvas>
     <div class="chrome-min">
-      <div class="l">CUDA 并行计算 · 十分钟入门</div>
+      <div class="l">CUDA 并行计算 · Warp-Level Primitives</div>
       <div class="r">01 / 10</div>
     </div>
     <div style="flex:1;padding:0;display:grid;grid-template-rows:auto 1fr auto;gap:2.6vh">
-      <div class="t-meta" style="color:rgba(255,255,255,.78);letter-spacing:.22em">FROM SCRATCH</div>
-      <h1 style="align-self:center;font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(9vw,16vh);line-height:.94;letter-spacing:-.025em;color:#fff">用 CUDA 实现<br><span style="font-style:italic;font-weight:300">Softmax算法</span></h1>
+      <div class="t-meta" style="color:rgba(255,255,255,.78);letter-spacing:.22em">WARP SHUFFLE · PARALLEL REDUCTION</div>
+      <h1 style="align-self:center;font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(7.4vw,14vh);line-height:.94;letter-spacing:-.025em;color:#fff">利用 Warp Shuffle<br>实现高效<span style="font-style:italic;font-weight:300">并行归约</span></h1>
       <div style="display:grid;grid-template-rows:auto auto;gap:1.6vh;border-top:1px solid rgba(255,255,255,.22);padding-top:2vh">
-        <div class="lead" style="max-width:52ch;color:rgba(255,255,255,.86);font-weight:300">Naive 串行 → Warp 并行归约 → 4.8× 加速</div>
+        <div class="lead" style="max-width:52ch;color:rgba(255,255,255,.86);font-weight:300">以 <strong>Softmax</strong> 为例 · Naive 串行 → Warp Reduction → 4.8× 加速</div>
         <div style="display:flex;justify-content:space-between;align-items:end">
           <div class="t-meta" style="color:rgba(255,255,255,.6)">GPU: RTX 4060 · CUDA 13.3</div>
-          <!-- <div class="t-meta" style="color:rgba(255,255,255,.6)">→ 按方向键翻页</div> -->
         </div>
       </div>
     </div>
@@ -128,8 +127,8 @@
     <div class="chrome-min"><div class="l">WHAT · 02</div><div class="r">02 / 10</div></div>
     <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:3vh">
       <div style="display:flex;flex-direction:column;gap:1.4vh">
-        <div class="t-meta">THE FORMULA</div>
-        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em">Softmax 是什么？</h2>
+        <div class="t-meta">EXAMPLE ALGORITHM</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em">示例算法: Softmax</h2>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1">
         <div class="card-fill" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:0;padding:2vh 0">
@@ -163,7 +162,7 @@
     <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.6vh">
       <div style="display:flex;flex-direction:column;gap:1.4vh">
         <div class="t-meta">THE PROBLEM</div>
-        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em">为什么要用 GPU 算 Softmax？</h2>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em">并行归约的典型场景</h2>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1;align-items:start">
         <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh;padding:3vh 2vw">
@@ -201,7 +200,7 @@
     <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.4vh">
       <div style="display:flex;flex-direction:column;gap:1.4vh">
         <div class="t-meta">VERSION 1</div>
-        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5vw,9vh);line-height:.96;letter-spacing:-.035em">Naive Softmax: 每个线程单干</h2>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5vw,9vh);line-height:.96;letter-spacing:-.035em">Naive 实现: 每线程串行归约</h2>
       </div>
       <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:2vw">
         <pre class="code-block"><span class="cm">// 线程 tid 独立计算第 row 行的 softmax</span>
@@ -441,7 +440,7 @@ __global__ <span class="kw">void</span> <span class="fn">softmax_warp</span>(
     <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.6vh">
       <div style="display:flex;flex-direction:column;gap:1.4vh">
         <div class="t-meta">PERFORMANCE · rows=32768 · RTX 4060</div>
-        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5vw,9vh);line-height:.96;letter-spacing:-.035em">性能: Warp 归约 4–7× 更快</h2>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5vw,9vh);line-height:.96;letter-spacing:-.035em">性能: Warp Reduction 加速 4–7×</h2>
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1.4vw;flex:1">
         <div class="card-fill" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2vh">
@@ -485,8 +484,8 @@ __global__ <span class="kw">void</span> <span class="fn">softmax_warp</span>(
         </div>
         <div style="display:flex;flex-direction:column;gap:2vh;position:relative;z-index:1">
           <div class="t-meta" style="color:rgba(255,255,255,.78);letter-spacing:.22em;margin-bottom:1.6vh">TAKEAWAY</div>
-          <h2 style="font-family:var(--sans),var(--sans-zh);font-size:min(7vw,12vh);line-height:.94;letter-spacing:-.025em;font-weight:200;color:#fff">32 条线程<br><span style="font-style:italic;font-weight:300">协作</span> > 1 条线程<br><span style="font-style:italic;font-weight:300">单干</span></h2>
-          <div style="font-family:var(--sans),var(--sans-zh);font-size:max(14px,1vw);line-height:1.6;color:rgba(255,255,255,.82);font-weight:300;max-width:34ch;margin-top:1.4vh">用 CUDA 实现 Softmax 的完整旅程.</div>
+          <h2 style="font-family:var(--sans),var(--sans-zh);font-size:min(7vw,12vh);line-height:.94;letter-spacing:-.025em;font-weight:200;color:#fff">Warp Shuffle<br><span style="font-style:italic;font-weight:300">并行归约</span></h2>
+          <div style="font-family:var(--sans),var(--sans-zh);font-size:max(14px,1vw);line-height:1.6;color:rgba(255,255,255,.82);font-weight:300;max-width:34ch;margin-top:1.4vh">以 Softmax 为例，展示 Warp 级并行归约的完整设计过程.</div>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:end;border-top:1px solid rgba(255,255,255,.22);padding-top:2vh;position:relative;z-index:1">
           <div class="t-meta" style="color:rgba(255,255,255,.62)">github.com/Xhlging/cuda-self-attention</div>
@@ -513,8 +512,8 @@ __global__ <span class="kw">void</span> <span class="fn">softmax_warp</span>(
           <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle);border-bottom:2px solid var(--accent)">
             <div style="font-family:var(--sans);font-weight:200;font-size:min(4.4vw,7.8vh);line-height:.9;color:var(--accent)">03</div>
             <div>
-              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;color:var(--accent);margin-bottom:1vh">简单算法也能讲出深度</h3>
-              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">Softmax 只有一个公式，但并行化过程中遇到的 warp 协作、蝴蝶归约、广播陷阱，都是 GPU 编程的核心概念。</p>
+              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;color:var(--accent);margin-bottom:1vh">Warp Shuffle 适用于任意归约</h3>
+              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">不限于 Softmax——求和、最大值、最小值、前缀和等任意跨线程聚合操作，都可以用 Reduction + Broadcast 模式高效实现。</p>
             </div>
           </div>
         </div>
