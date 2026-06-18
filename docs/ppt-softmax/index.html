@@ -165,25 +165,24 @@
         <div class="t-meta">THE PROBLEM</div>
         <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em">为什么要用 GPU 算 Softmax？</h2>
       </div>
-      <div class="duo-compare">
-        <div class="duo-half">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1;align-items:start">
+        <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh;padding:3vh 2vw">
           <span class="t-cat" style="color:var(--accent);font-size:max(15px,.85vw)">场景</span>
-          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(20px,1.2vw);line-height:1.7;color:var(--text-primary);font-weight:400;margin-top:2.4vh">
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(20px,1.2vw);line-height:1.8;color:var(--text-primary);font-weight:400">
             大语言模型（ChatGPT）<br>每一层、每个 token<br>都要算一次 Softmax
           </p>
-          <p style="font-family:var(--mono);font-size:max(16px,.9vw);color:var(--text-secondary);line-height:1.8;margin-top:2vh">
+          <p style="font-family:var(--mono);font-size:max(16px,.9vw);color:var(--text-secondary);line-height:1.9;margin-top:1vh">
             32,768 个 token<br>
-            每个 token 有 4,096 维<br>
+            每个 token 4,096 维<br>
             = <strong style="color:var(--accent);font-size:1.1em">32,768 次</strong> / 推理
           </p>
         </div>
-        <span class="vrule"></span>
-        <div class="duo-half">
+        <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh;padding:3vh 2vw">
           <span class="t-cat" style="color:var(--accent);font-size:max(15px,.85vw)">GPU 方案</span>
-          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(20px,1.2vw);line-height:1.7;color:var(--text-primary);font-weight:400;margin-top:2.4vh">
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(20px,1.2vw);line-height:1.8;color:var(--text-primary);font-weight:400">
             每个线程独立算一行<br>几千行 → 几千个线程<br>同时并行计算
           </p>
-          <p style="font-family:var(--mono);font-size:max(16px,.9vw);color:var(--accent);line-height:1.8;margin-top:2vh">
+          <p style="font-family:var(--mono);font-size:max(16px,.9vw);color:var(--accent);line-height:1.9;margin-top:1vh">
             核心问题:<br><strong>同一行内</strong><br><strong style="font-size:1.1em">怎么让 32 线程协作？</strong></p>
           </p>
         </div>
