@@ -21,3 +21,28 @@ def attention_tiled(q, k, v, scale=None):
     if scale is None:
         scale = D ** -0.5
     return _C.attention_forward_tiled(q, k, v, float(scale))
+
+
+def softmax_naive(x):
+    """Naive CUDA softmax forward (serial per-row).
+
+    Args:
+        x: [*, D] tensor (float32)
+    Returns:
+        output: [*, D] tensor, softmax along last dim
+    """
+    return _C.softmax_forward_naive(x)
+
+
+def softmax_warp(x):
+    """Warp-reduction CUDA softmax forward.
+
+    Uses __shfl_down_sync for parallel sum within a warp.
+    Faster than naive for large D.
+
+    Args:
+        x: [*, D] tensor (float32), D ≤ 1024
+    Returns:
+        output: [*, D] tensor, softmax along last dim
+    """
+    return _C.softmax_forward_warp(x)

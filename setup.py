@@ -6,7 +6,8 @@ ext_modules = [
         "attention._C",
         [
             "csrc/attention_bindings.cpp",  # Torch bindings (g++)
-            "csrc/attention_kernel.cu",     # CUDA kernels (nvcc)
+            "csrc/attention_kernel.cu",     # CUDA attention kernels (nvcc)
+            "csrc/softmax_kernel.cu",       # CUDA softmax kernels (nvcc)
         ],
         extra_compile_args={
             "cxx": ["-O3", "-fopenmp"],
