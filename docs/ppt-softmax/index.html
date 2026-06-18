@@ -182,8 +182,11 @@
           <p style="font-family:var(--sans),var(--sans-zh);font-size:max(20px,1.2vw);line-height:1.8;color:var(--text-primary);font-weight:400">
             每个线程独立算一行<br>几千行 → 几千个线程<br>同时并行计算
           </p>
-          <p style="font-family:var(--mono);font-size:max(16px,.9vw);color:var(--accent);line-height:1.9;margin-top:1vh">
-            核心问题:<br><strong>同一行内</strong><br><strong style="font-size:1.1em">怎么让 32 线程协作？</strong></p>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.9vw);color:var(--accent);line-height:1.9;margin-top:1vh;font-weight:500">
+            核心问题: 同一行内<br><strong style="font-size:1.1em">怎么让 32 线程协作？</strong>
+          </p>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(13px,.72vw);color:var(--text-helper);line-height:1.6;margin-top:.6vh">
+            NVIDIA GPU 硬件固定 <strong>32 线程 = 1 Warp</strong><br>（从 2012 年 Kepler 到 2025 年 Blackwell 从未变过）<br>Warp 内线程可以单周期交换数据——最快协作方式
           </p>
         </div>
       </div>
