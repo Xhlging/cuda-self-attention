@@ -64,7 +64,12 @@
   .num-mega{font-family:var(--sans);font-weight:200;font-size:min(6vw,10vh);line-height:.9;letter-spacing:-.04em}
   .num-label{font-family:var(--mono);font-size:max(12px,.68vw);color:var(--text-helper);text-transform:uppercase}
 
-  .code-block{background:var(--grey-1);padding:2vh 1.8vw;overflow:hidden;font-family:var(--mono);font-size:max(12px,.66vw);line-height:1.7;color:var(--text-primary)}
+  .code-block{background:var(--grey-1);padding:2.4vh 2vw;overflow-x:auto;overflow-y:auto;font-family:var(--mono);font-size:max(14px,.78vw);line-height:1.9;color:var(--text-primary);border-left:3px solid var(--accent);white-space:pre}
+  .code-block .kw{color:var(--accent);font-weight:600}
+  .code-block .cm{color:var(--text-helper);font-style:italic}
+  .code-block .fn{color:#c4256b}
+  .code-block .num{color:var(--accent)}
+  .code-block b{color:var(--ink)}
 
   .half{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
   .half.b-accent{background:var(--accent)}
@@ -199,35 +204,37 @@
         <div class="t-meta">VERSION 1</div>
         <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5vw,9vh);line-height:.96;letter-spacing:-.035em">Naive Softmax: 每个线程单干</h2>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw">
-        <div>
-          <div class="code-block" style="margin-bottom:1.6vh">
-            <span style="color:var(--text-helper)">// 线程 tid 独立计算第 row 行的 softmax</span><br>
-            <span style="color:var(--accent)">// 第一遍: 找最大值</span><br>
-            max = x[0]<br>
-            <b>for</b> i=1..D-1: max = max(max, x[i])<br><br>
-            <span style="color:var(--accent)">// 第二遍: 算 exp + 求和</span><br>
-            sum = 0<br>
-            <b>for</b> i=0..D-1:<br>
-            &nbsp;&nbsp;y[i] = exp(x[i] - max)<br>
-            &nbsp;&nbsp;sum += y[i]<br><br>
-            <span style="color:var(--accent)">// 第三遍: 归一化</span><br>
-            <b>for</b> i=0..D-1: y[i] /= sum
-          </div>
-        </div>
+      <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:2vw">
+        <pre class="code-block"><span class="cm">// 线程 tid 独立计算第 row 行的 softmax</span>
+<span class="cm">// 第一遍: 找最大值 (Safe Softmax)</span>
+max_val = x[0];
+<span class="kw">for</span> (i = 1; i &lt; D; i++)
+    max_val = fmaxf(max_val, x[i]);
+
+<span class="cm">// 第二遍: 算 exp 并求和</span>
+sum_val = 0;
+<span class="kw">for</span> (i = 0; i &lt; D; i++) {
+    y[i] = __expf(x[i] - max_val);
+    sum_val += y[i];
+}
+
+<span class="cm">// 第三遍: 归一化</span>
+inv_sum = 1.0f / sum_val;
+<span class="kw">for</span> (i = 0; i &lt; D; i++)
+    y[i] *= inv_sum;</pre>
         <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh">
           <div class="t-cat" style="color:var(--accent)">问题在哪？</div>
           <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-primary);font-weight:400">
             每个线程<b>串行</b>遍历 D 个元素三次。
           </p>
           <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-secondary);font-weight:400">
-            如果 D=1024，一个线程要遍历 3072 次。<br>
+            D=1024 时，每线程 3072 次操作。<br>
             线程之间<b>完全没有协作</b>。
           </p>
-          <div style="margin-top:auto;font-family:var(--mono);font-size:max(13px,.72vw);color:var(--text-primary);line-height:1.7">
-            <span style="color:var(--text-helper)">Grid:</span> [rows/256]<br>
+          <div style="margin-top:auto;font-family:var(--mono);font-size:max(14px,.78vw);color:var(--text-primary);line-height:1.8">
+            <span style="color:var(--text-helper)">Grid:</span>  [rows/256]<br>
             <span style="color:var(--text-helper)">Block:</span> [256]<br>
-            <span style="color:var(--text-helper)">每线程:</span> 串行三遍
+            <span style="color:var(--text-helper)">策略:</span>  每线程串行三遍
           </div>
         </div>
       </div>
@@ -341,41 +348,33 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1">
         <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh">
           <div class="t-cat" style="color:var(--accent)">Step A: 蝴蝶归约 (Reduce)</div>
-          <div class="code-block">
-            <span style="color:var(--text-helper)">// 每轮折半，下家把自己的值传给上家</span><br>
-            <b>for</b> (<b>int</b> offset = 16; offset &gt; 0; offset /= 2)<br>
-            &nbsp;&nbsp;sum_val += <span style="color:var(--accent)">__shfl_down_sync</span>(<br>
-            &nbsp;&nbsp;&nbsp;&nbsp;0xFFFFFFFF, sum_val, offset);
-          </div>
-          <div style="display:grid;grid-template-columns:auto 1fr;gap:1.2vw;align-items:center;margin-top:1vh;padding:1.2vh 1vw;background:#fff">
-            <div style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent);font-weight:600">offset=16</div>
-            <div style="font-family:var(--mono);font-size:max(12px,.65vw);color:var(--text-secondary)">lane 0←16, 1←17, ..., 15←31 → 剩 16 个</div>
-            <div style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent);font-weight:600">offset=8</div>
-            <div style="font-family:var(--mono);font-size:max(12px,.65vw);color:var(--text-secondary)">lane 0←8, 1←9, ..., 7←15 → 剩 8 个</div>
-            <div style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent);font-weight:600">...</div><div></div>
-            <div style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent);font-weight:600">offset=1</div>
-            <div style="font-family:var(--mono);font-size:max(12px,.65vw);color:var(--accent)">lane 0←1 → <b>只在 lane 0</b></div>
+          <pre class="code-block"><span class="cm">// 每轮折半: 线程 i 收到线程 i+offset 的值并合并</span>
+<span class="kw">for</span> (<span class="kw">int</span> offset = <span class="num">16</span>; offset &gt; <span class="num">0</span>; offset /= <span class="num">2</span>)
+    sum_val += <span class="fn">__shfl_down_sync</span>(
+        0xFFFFFFFF, sum_val, offset);</pre>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1.2vw;align-items:center;margin-top:1vh;padding:1.6vh 1.2vw;background:#fff;font-family:var(--mono)">
+            <div style="font-size:max(14px,.75vw);color:var(--accent);font-weight:600">offset=16</div>
+            <div style="font-size:max(13px,.7vw);color:var(--text-secondary)">lane 0←16, 1←17, ..., 15←31 → 剩 16 个</div>
+            <div style="font-size:max(14px,.75vw);color:var(--accent);font-weight:600">offset=8</div>
+            <div style="font-size:max(13px,.7vw);color:var(--text-secondary)">lane 0←8, 1←9, ..., 7←15 → 剩 8 个</div>
+            <div style="font-size:max(14px,.75vw);color:var(--accent);font-weight:600">offset=4</div>
+            <div style="font-size:max(13px,.7vw);color:var(--text-secondary)">lane 0←4, 1←5, 2←6, 3←7 → 剩 4 个</div>
+            <div style="font-size:max(14px,.75vw);color:var(--accent);font-weight:600">offset=2</div>
+            <div style="font-size:max(13px,.7vw);color:var(--text-secondary)">lane 0←2, 1←3 → 剩 2 个</div>
+            <div style="font-size:max(14px,.75vw);color:var(--accent);font-weight:600">offset=1</div>
+            <div style="font-size:max(13px,.7vw);color:var(--accent)">lane 0←1 → <b>只在 lane 0</b></div>
           </div>
         </div>
         <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh">
           <div class="t-cat" style="color:var(--accent)">Step B: 广播 (Broadcast)</div>
-          <div class="code-block">
-            <span style="color:var(--text-helper)">// 把 lane 0 的值复制给所有 32 条线程</span><br>
-            sum_val = <span style="color:var(--accent)">__shfl_sync</span>(<br>
-            &nbsp;&nbsp;0xFFFFFFFF, sum_val, <span style="color:var(--accent)">0</span>);
-          </div>
-          <div style="display:flex;flex-direction:column;gap:1vh;margin-top:1vh">
-            <div style="display:flex;align-items:center;gap:1vw;padding:1vh 1.2vw;background:#fff">
-              <div style="font-family:var(--mono);font-size:max(12px,.65vw);color:var(--accent)">__shfl_sync(mask, val, src_lane)</div>
-              <div style="font-family:var(--sans),var(--sans-zh);font-size:max(14px,.8vw);color:var(--text-secondary)">src_lane=0 → 线程 0 的值分发给 Warp 内所有人</div>
-            </div>
-          </div>
-          <div style="margin-top:auto;padding:2vh 1.6vw;background:#fff">
+          <pre class="code-block"><span class="cm">// 把 lane 0 的值复制给 Warp 内所有 32 条线程</span>
+sum_val = <span class="fn">__shfl_sync</span>(
+    0xFFFFFFFF, sum_val, <span class="num">0</span>);  <span class="cm">// src_lane=0</span></pre>
+          <div style="margin-top:1.4vh;padding:2vh 1.6vw;background:#fff">
             <div class="t-cat" style="color:var(--accent)">两步缺一不可</div>
             <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.9vw);line-height:1.6;color:var(--text-primary);font-weight:400;margin-top:.8vh">
               <strong>归约</strong> 把 32 个值合并为 1 个（落在 lane 0）<br>
-              <strong>广播</strong> 把这 1 个值复制给人人（所有 lane 都拿到）<br>
-              少一步 → 只有 lane 0 是对的，其他 31 个线程得到错误结果
+              <strong>广播</strong> 把这 1 个值复制给人人（所有 lane 都拿到）
             </p>
           </div>
         </div>
@@ -393,40 +392,45 @@
         <div class="t-meta">WARP SOFTMAX KERNEL</div>
         <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(4.6vw,8vh);line-height:.96;letter-spacing:-.035em">完整代码: 35 行实现 Warp Softmax</h2>
       </div>
-      <div class="code-block" style="flex:1;overflow-y:auto">
-<span style="color:var(--text-helper)">// Grid: [rows], Block: [32] — 一个 Warp 处理一行</span>
-<b>template</b> &lt;<b>int</b> D&gt;
-__global__ <b>void</b> softmax_warp(<b>const float</b>* x, <b>float</b>* y, <b>int</b> rows, <b>int</b> stride) {
-    <b>int</b> row = blockIdx.x;                <span style="color:var(--text-helper)">// 一行一个 Block</span>
-    <b>int</b> lane = threadIdx.x;               <span style="color:var(--text-helper)">// 线程在 Warp 内的编号 (0-31)</span>
-    <b>if</b> (row &gt;= rows) <b>return</b>;
-    x += row * stride;  y += row * stride;
+      <pre class="code-block" style="flex:1;overflow-y:auto"><span class="cm">// Grid: [rows], Block: [32] — 一行数据恰好一个 Warp 处理</span>
+<span class="kw">template</span> &lt;<span class="kw">int</span> D&gt;
+__global__ <span class="kw">void</span> <span class="fn">softmax_warp</span>(
+    <span class="kw">const float</span>* __restrict__ input,
+    <span class="kw">float</span>* __restrict__ output,
+    <span class="kw">int</span> rows, <span class="kw">int</span> stride)
+{
+    <span class="kw">int</span> row  = blockIdx.x;              <span class="cm">// 一行一个 Block</span>
+    <span class="kw">int</span> lane = threadIdx.x;             <span class="cm">// Warp 内编号 (0~31)</span>
+    <span class="kw">if</span> (row &gt;= rows) <span class="kw">return</span>;
+    <span class="kw">const float</span>* x = input + row * stride;
+    <span class="kw">float</span>* y = output + row * stride;
 
-    <span style="color:var(--accent)">// === Step 1: 每个线程处理 D/32 个元素，找局部最大值 ===</span>
-    <b>float</b> max_val = -INFINITY;
-    <b>for</b> (<b>int</b> i = lane; i &lt; D; i += 32)
+    <span class="cm">// ===== Step 1: 跨步访问找局部最大值 =====</span>
+    <span class="kw">float</span> max_val = -INFINITY;
+    <span class="kw">for</span> (<span class="kw">int</span> i = lane; i &lt; D; i += <span class="num">32</span>)
         max_val = fmaxf(max_val, x[i]);
 
-    <span style="color:var(--accent)">// === Step 2: 蝴蝶归约，32 个局部 max → 1 个全局 max ===</span>
-    <b>for</b> (<b>int</b> offset = 16; offset &gt; 0; offset /= 2)
-        max_val = fmaxf(max_val, __shfl_down_sync(0xFFFFFFFF, max_val, offset));
-    <span style="color:var(--accent)">max_val = __shfl_sync(0xFFFFFFFF, max_val, 0); // ← 广播！</span>
+    <span class="cm">// ===== Step 2: 蝴蝶归约 + 广播 =====</span>
+    <span class="kw">for</span> (<span class="kw">int</span> offset = <span class="num">16</span>; offset &gt; <span class="num">0</span>; offset /= <span class="num">2</span>)
+        max_val = fmaxf(max_val,
+            <span class="fn">__shfl_down_sync</span>(0xFFFFFFFF, max_val, offset));
+    max_val = <span class="fn">__shfl_sync</span>(0xFFFFFFFF, max_val, <span class="num">0</span>);
 
-    <span style="color:var(--accent)">// === Step 3: 算 exp + warp 归约求和 ===</span>
-    <b>float</b> sum_val = 0;
-    <b>for</b> (<b>int</b> i = lane; i &lt; D; i += 32) {
-        <b>float</b> e = __expf(x[i] - max_val);
+    <span class="cm">// ===== Step 3: 算 exp + 归约求和 + 广播 =====</span>
+    <span class="kw">float</span> sum_val = <span class="num">0.0f</span>;
+    <span class="kw">for</span> (<span class="kw">int</span> i = lane; i &lt; D; i += <span class="num">32</span>) {
+        <span class="kw">float</span> e = __expf(x[i] - max_val);
         y[i] = e;  sum_val += e;
     }
-    <b>for</b> (<b>int</b> offset = 16; offset &gt; 0; offset /= 2)
-        sum_val += __shfl_down_sync(0xFFFFFFFF, sum_val, offset);
-    <span style="color:var(--accent)">sum_val = __shfl_sync(0xFFFFFFFF, sum_val, 0); // ← 广播！</span>
+    <span class="kw">for</span> (<span class="kw">int</span> offset = <span class="num">16</span>; offset &gt; <span class="num">0</span>; offset /= <span class="num">2</span>)
+        sum_val += <span class="fn">__shfl_down_sync</span>(0xFFFFFFFF, sum_val, offset);
+    sum_val = <span class="fn">__shfl_sync</span>(0xFFFFFFFF, sum_val, <span class="num">0</span>);
 
-    <span style="color:var(--accent)">// === Step 4: 归一化 ===</span>
-    <b>float</b> inv_sum = 1.0f / sum_val;
-    <b>for</b> (<b>int</b> i = lane; i &lt; D; i += 32)
+    <span class="cm">// ===== Step 4: 归一化输出 =====</span>
+    <span class="kw">float</span> inv_sum = <span class="num">1.0f</span> / sum_val;
+    <span class="kw">for</span> (<span class="kw">int</span> i = lane; i &lt; D; i += <span class="num">32</span>)
         y[i] *= inv_sum;
-}
+}</pre>
       </div>
     </div>
   </div>
