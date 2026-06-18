@@ -383,15 +383,15 @@ sum_val = <span class="fn">__shfl_sync</span>(
 </section>
 
 <!-- ===== P8 · Warp Kernel 完整代码 ===== -->
-<section class="slide light">
-  <div class="canvas-card">
-    <div class="chrome-min"><div class="l">CODE · 08</div><div class="r">08 / 10</div></div>
-    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2vh">
-      <div style="display:flex;flex-direction:column;gap:1vh">
+<section class="slide light" style="padding:3vh 5vw 4vh 5vw">
+  <div class="canvas-card" style="padding:2vh 5vw 2vh 5vw">
+    <div class="chrome-min" style="margin-bottom:1.6vh"><div class="l">CODE · 08</div><div class="r">08 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:1.2vh;min-height:0">
+      <div style="display:flex;flex-direction:column;gap:.6vh;flex-shrink:0">
         <div class="t-meta">WARP SOFTMAX KERNEL</div>
-        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(4.6vw,8vh);line-height:.96;letter-spacing:-.035em">完整代码: 35 行实现 Warp Softmax</h2>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(3.6vw,6vh);line-height:1;letter-spacing:-.035em">完整代码: 35 行实现 Warp Softmax</h2>
       </div>
-      <pre class="code-block" style="flex:1;overflow-y:auto"><span class="cm">// Grid: [rows], Block: [32] — 一行数据恰好一个 Warp 处理</span>
+      <pre class="code-block" style="flex:1;min-height:0;overflow-y:auto;font-size:max(13px,.72vw);line-height:1.7;padding:1.6vh 1.8vw"><span class="cm">// Grid: [rows], Block: [32] — 一行数据恰好一个 Warp 处理</span>
 <span class="kw">template</span> &lt;<span class="kw">int</span> D&gt;
 __global__ <span class="kw">void</span> <span class="fn">softmax_warp</span>(
     <span class="kw">const float</span>* __restrict__ input,
