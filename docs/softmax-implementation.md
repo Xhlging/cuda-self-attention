@@ -16,18 +16,20 @@
 
 Softmax 的数学公式：
 
-```
-softmax(x_i) = exp(x_i) / Σ_j exp(x_j)
-```
+$$
+\text{softmax}(x_i) = \frac{e^{x_i}}{\sum_{j} e^{x_j}}
+$$
 
 **Safe Softmax 版本**（防止 exp 溢出）：
 
-```
-m = max_j x_j                           // 第一步: 找最大值
-softmax(x_i) = exp(x_i - m) / Σ_j exp(x_j - m)   // 第二步: 减最大值再 exp
-```
+1. 先找最大值：$m = \max_j x_j$
+2. 再减最大值做 softmax：
 
-为什么"safe"？因为直接算 `exp(100)` 会超过 float 的最大值（约 3.4×10³⁸）。所有值先减去最大值后，最大值变成 `exp(0) = 1`，永远不会溢出。
+$$
+\text{softmax}(x_i) = \frac{e^{x_i - m}}{\sum_j e^{x_j - m}}
+$$
+
+为什么"safe"？因为直接算 $e^{100}$ 会超过 float 的最大值（约 $3.4 \times 10^{38}$）。所有值先减去最大值后，最大项变成 $e^0 = 1$，永远不会溢出。
 
 ---
 
