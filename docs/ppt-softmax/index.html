@@ -251,28 +251,27 @@ inv_sum = 1.0f / sum_val;
         <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em;color:var(--text-on-color)">Warp: GPU 的最小调度单位</h2>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1">
-        <div class="card-fill" style="background:rgba(255,255,255,.08);display:flex;flex-direction:column;gap:1.6vh">
-          <div class="t-cat" style="color:var(--accent-bright)">什么是 Warp？</div>
-          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:rgba(255,255,255,.86);font-weight:400">
-            32 条线程编成一组 = 1 个 Warp<br>
-            GPU 以 Warp 为单位调度执行
+        <div class="card-fill" style="background:rgba(255,255,255,.08);display:flex;flex-direction:column;gap:2vh;padding:3vh 2.2vw">
+          <div class="t-cat" style="color:var(--accent-bright);font-size:max(17px,.95vw)">什么是 Warp？</div>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(22px,1.3vw);line-height:1.7;color:rgba(255,255,255,.90);font-weight:400">
+            32 条线程编成一组<br>称为一个 <strong style="color:var(--accent-bright)">Warp</strong><br>GPU 以 Warp 为单位调度执行
           </p>
-          <div style="font-family:var(--mono);font-size:max(13px,.72vw);color:rgba(255,255,255,.6);line-height:1.8">
-            线程 0 ─┬─ Warp 0<br>
-            线程 1 ─┤<br>
-            ...&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
-            线程 31─┘
+          <div style="font-family:var(--mono);font-size:max(17px,.95vw);color:rgba(255,255,255,.72);line-height:2;margin-top:1vh">
+            线程 0  ─┬─  Warp 0<br>
+            线程 1  ─┤<br>
+            &#8942;           │<br>
+            线程 31 ─┘
           </div>
         </div>
-        <div class="card-fill" style="background:rgba(255,255,255,.08);display:flex;flex-direction:column;gap:1.6vh">
-          <div class="t-cat" style="color:var(--accent-bright)">Warp 的特殊能力</div>
-          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:rgba(255,255,255,.86);font-weight:400">
-            <strong>__shfl_down_sync</strong>: 同 Warp 内的线程可以<b>直接交换数据</b>——不需要共享内存！
+        <div class="card-fill" style="background:rgba(255,255,255,.08);display:flex;flex-direction:column;gap:2vh;padding:3vh 2.2vw">
+          <div class="t-cat" style="color:var(--accent-bright);font-size:max(17px,.95vw)">Warp 的特殊能力</div>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(22px,1.3vw);line-height:1.7;color:rgba(255,255,255,.90);font-weight:400">
+            <strong>__shfl_down_sync</strong><br>同 Warp 内的线程可以<br><b>直接交换寄存器数据</b><br>不需要共享内存！
           </p>
-          <p style="font-family:var(--mono);font-size:max(13px,.72vw);color:var(--accent-bright);line-height:1.8;margin-top:1vh">
-            线程 i 收到线程 i+offset 的值<br>
-            → 蝴蝶归约 → log₂(32)=5 步<br>
-            → 32 个值合并成 1 个
+          <p style="font-family:var(--mono);font-size:max(17px,.95vw);color:var(--accent-bright);line-height:2;margin-top:1vh;font-weight:500">
+            线程 i 收到 i+offset 的值<br>
+            蝴蝶归约 → log₂(32) = 5 步<br>
+            32 个值 → 合并为 1 个
           </p>
         </div>
       </div>
