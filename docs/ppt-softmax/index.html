@@ -371,13 +371,36 @@ inv_sum = 1.0f / sum_val;
 sum_val = <span class="fn">__shfl_sync</span>(
     0xFFFFFFFF, sum_val, <span class="num">0</span>);  <span class="cm">// src_lane=0</span></pre>
           <div style="margin-top:1.4vh;padding:2vh 1.6vw;background:#fff">
-            <div class="t-cat" style="color:var(--accent)">Reduction + Broadcast</div>
+            <div class="t-cat" style="color:var(--accent)">Reduction + Broadcast = Allreduce</div>
             <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.9vw);line-height:1.6;color:var(--text-primary);font-weight:400;margin-top:.8vh">
-              在当前 Reduction 写法中<br>最终结果保存在 <strong>lane 0</strong><br>随后通过 Broadcast<br>让 Warp 内所有线程获得该结果
+              在当前写法中，结果保存在 <strong>lane 0</strong><br>Broadcast 后所有线程获得该结果<br>两步等价于一次 <strong>Allreduce</strong>
             </p>
           </div>
         </div>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.2vw;margin-top:1.2vh">
+        <div class="card-fill" style="padding:1.6vh 1.2vw;text-align:center">
+          <div class="t-meta" style="font-size:max(11px,.62vw);color:var(--accent)">手写 Warp Shuffle</div>
+          <p style="font-family:var(--mono);font-size:max(13px,.72vw);line-height:1.6;color:var(--text-primary);margin-top:.6vh">
+            __shfl_down_sync<br>+ __shfl_sync<br>手动 Reduce+Bcast
+          </p>
+        </div>
+        <div class="card-fill" style="padding:1.6vh 1.2vw;text-align:center">
+          <div class="t-meta" style="font-size:max(11px,.62vw)">CUB BlockReduce</div>
+          <p style="font-family:var(--mono);font-size:max(13px,.72vw);line-height:1.6;color:var(--text-primary);margin-top:.6vh">
+            cub::BlockReduce&lt;float&gt;<br>.Reduce(val, cub::Sum())<br>库函数封装
+          </p>
+        </div>
+        <div class="card-fill" style="padding:1.6vh 1.2vw;text-align:center">
+          <div class="t-meta" style="font-size:max(11px,.62vw)">Cooperative Groups</div>
+          <p style="font-family:var(--mono);font-size:max(13px,.72vw);line-height:1.6;color:var(--text-primary);margin-top:.6vh">
+            cg::tiled_partition&lt;32&gt;<br>cg::reduce(tile, val,<br>cg::plus&lt;float&gt;())
+          </p>
+        </div>
+      </div>
+      <p style="font-family:var(--sans),var(--sans-zh);font-size:max(13px,.72vw);color:var(--text-helper);text-align:center;margin-top:1vh">
+        三者底层均使用相同的硬件 Shuffle 指令。手写版本让你理解原理；CUB/CG 提供更安全的抽象。
+      </p>
     </div>
   </div>
 </section>
