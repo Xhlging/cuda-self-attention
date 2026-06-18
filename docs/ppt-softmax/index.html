@@ -110,12 +110,12 @@
     </div>
     <div style="flex:1;padding:0;display:grid;grid-template-rows:auto 1fr auto;gap:2.6vh">
       <div class="t-meta" style="color:rgba(255,255,255,.78);letter-spacing:.22em">FROM SCRATCH</div>
-      <h1 style="align-self:center;font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(9vw,16vh);line-height:.94;letter-spacing:-.025em;color:#fff">用 CUDA 实现<br>一个 <span style="font-style:italic;font-weight:300">Softmax</span></h1>
+      <h1 style="align-self:center;font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(9vw,16vh);line-height:.94;letter-spacing:-.025em;color:#fff">用 CUDA 实现<br><span style="font-style:italic;font-weight:300">Softmax算法</span></h1>
       <div style="display:grid;grid-template-rows:auto auto;gap:1.6vh;border-top:1px solid rgba(255,255,255,.22);padding-top:2vh">
         <div class="lead" style="max-width:52ch;color:rgba(255,255,255,.86);font-weight:300">Naive 串行 → Warp 并行归约 → 4.8× 加速</div>
         <div style="display:flex;justify-content:space-between;align-items:end">
           <div class="t-meta" style="color:rgba(255,255,255,.6)">GPU: RTX 4060 · CUDA 13.3</div>
-          <div class="t-meta" style="color:rgba(255,255,255,.6)">→ 按方向键翻页</div>
+          <!-- <div class="t-meta" style="color:rgba(255,255,255,.6)">→ 按方向键翻页</div> -->
         </div>
       </div>
     </div>
@@ -167,26 +167,24 @@
       </div>
       <div class="duo-compare">
         <div class="duo-half">
-          <span class="t-cat" style="color:var(--accent)">场景</span>
-          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-primary);font-weight:400;margin-top:2vh">
-            大语言模型（如 ChatGPT）每一层、每个 token 都要算一次 Softmax。
+          <span class="t-cat" style="color:var(--accent);font-size:max(15px,.85vw)">场景</span>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(20px,1.2vw);line-height:1.7;color:var(--text-primary);font-weight:400;margin-top:2.4vh">
+            大语言模型（ChatGPT）<br>每一层、每个 token<br>都要算一次 Softmax
           </p>
-          <p style="font-family:var(--mono);font-size:max(13px,.72vw);color:var(--text-secondary);line-height:1.7;margin-top:1.6vh">
-            例如: 32,768 个 token<br>
+          <p style="font-family:var(--mono);font-size:max(16px,.9vw);color:var(--text-secondary);line-height:1.8;margin-top:2vh">
+            32,768 个 token<br>
             每个 token 有 4,096 维<br>
-            = 每次推理要算 <strong style="color:var(--accent)">32,768 次</strong> Softmax
+            = <strong style="color:var(--accent);font-size:1.1em">32,768 次</strong> / 推理
           </p>
         </div>
         <span class="vrule"></span>
         <div class="duo-half">
-          <span class="t-cat" style="color:var(--accent)">GPU 方案</span>
-          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-primary);font-weight:400;margin-top:2vh">
-            每个线程独立算一行 Softmax。<br>
-            几千行 → 几千个线程同时算。
+          <span class="t-cat" style="color:var(--accent);font-size:max(15px,.85vw)">GPU 方案</span>
+          <p style="font-family:var(--sans),var(--sans-zh);font-size:max(20px,1.2vw);line-height:1.7;color:var(--text-primary);font-weight:400;margin-top:2.4vh">
+            每个线程独立算一行<br>几千行 → 几千个线程<br>同时并行计算
           </p>
-          <p style="font-family:var(--mono);font-size:max(13px,.72vw);color:var(--accent);line-height:1.7;margin-top:1.6vh">
-            问题: 同一行内，怎么让<br>
-            <strong>32 个线程协作</strong>加速？
+          <p style="font-family:var(--mono);font-size:max(16px,.9vw);color:var(--accent);line-height:1.8;margin-top:2vh">
+            核心问题:<br><strong>同一行内</strong><br><strong style="font-size:1.1em">怎么让 32 线程协作？</strong></p>
           </p>
         </div>
       </div>
