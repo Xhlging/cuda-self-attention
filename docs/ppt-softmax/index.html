@@ -329,46 +329,54 @@
   </div>
 </section>
 
-<!-- ===== P7 · 经典 Bug ===== -->
+<!-- ===== P7 · Reduction + Broadcast ===== -->
 <section class="slide light">
   <div class="canvas-card">
-    <div class="chrome-min"><div class="l">BUG · 07</div><div class="r">07 / 10</div></div>
-    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.6vh">
+    <div class="chrome-min"><div class="l">REDUCE · 07</div><div class="r">07 / 10</div></div>
+    <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:2.4vh">
       <div style="display:flex;flex-direction:column;gap:1.4vh">
-        <div class="t-meta">THE CLASSIC TRAP</div>
-        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.2vw,9vh);line-height:.96;letter-spacing:-.035em">经典 Bug: 忘了广播</h2>
+        <div class="t-meta">REDUCTION + BROADCAST</div>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.2vw,9vh);line-height:.96;letter-spacing:-.035em">归约产生在 lane 0，广播分发给所有人</h2>
       </div>
-      <div class="duo-compare">
-        <div class="duo-half">
-          <span class="t-cat" style="color:var(--text-helper)">❌ 错误的代码</span>
-          <div class="code-block" style="margin-top:1.6vh">
-            <span style="color:var(--text-helper)">// 归约: 只有线程0拿到总和</span><br>
-            <b>for</b> (offset=16;offset&gt;0;offset/=2)<br>
-            &nbsp;&nbsp;sum += shfl_down(sum, offset);<br>
-            <br>
-            <span style="color:var(--text-helper)">// ❌ 线程1-31 手里的 sum 是错的！</span><br>
-            inv_sum = 1.0 / sum;<br>
-            <b>for</b> i: y[i] *= inv_sum;
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1">
+        <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh">
+          <div class="t-cat" style="color:var(--accent)">Step A: 蝴蝶归约 (Reduce)</div>
+          <div class="code-block">
+            <span style="color:var(--text-helper)">// 每轮折半，下家把自己的值传给上家</span><br>
+            <b>for</b> (<b>int</b> offset = 16; offset &gt; 0; offset /= 2)<br>
+            &nbsp;&nbsp;sum_val += <span style="color:var(--accent)">__shfl_down_sync</span>(<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;0xFFFFFFFF, sum_val, offset);
           </div>
-          <div style="margin-top:1.4vh;padding:1vh 1.2vw;background:var(--grey-1)">
-            <span style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--text-primary)">结果: 误差 0.18 → 完全错误</span>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1.2vw;align-items:center;margin-top:1vh;padding:1.2vh 1vw;background:#fff">
+            <div style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent);font-weight:600">offset=16</div>
+            <div style="font-family:var(--mono);font-size:max(12px,.65vw);color:var(--text-secondary)">lane 0←16, 1←17, ..., 15←31 → 剩 16 个</div>
+            <div style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent);font-weight:600">offset=8</div>
+            <div style="font-family:var(--mono);font-size:max(12px,.65vw);color:var(--text-secondary)">lane 0←8, 1←9, ..., 7←15 → 剩 8 个</div>
+            <div style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent);font-weight:600">...</div><div></div>
+            <div style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent);font-weight:600">offset=1</div>
+            <div style="font-family:var(--mono);font-size:max(12px,.65vw);color:var(--accent)">lane 0←1 → <b>只在 lane 0</b></div>
           </div>
         </div>
-        <span class="vrule"></span>
-        <div class="duo-half">
-          <span class="t-cat" style="color:var(--accent)">✅ 正确的代码</span>
-          <div class="code-block" style="margin-top:1.6vh">
-            <span style="color:var(--text-helper)">// 归约: 只有线程0拿到总和</span><br>
-            <b>for</b> (offset=16;offset&gt;0;offset/=2)<br>
-            &nbsp;&nbsp;sum += shfl_down(sum, offset);<br>
-            <br>
-            <span style="color:var(--accent)">// ✅ 广播线程0的值给所有人</span><br>
-            sum = __shfl_sync(mask, sum, 0);<br>
-            inv_sum = 1.0 / sum;<br>
-            <b>for</b> i: y[i] *= inv_sum;
+        <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh">
+          <div class="t-cat" style="color:var(--accent)">Step B: 广播 (Broadcast)</div>
+          <div class="code-block">
+            <span style="color:var(--text-helper)">// 把 lane 0 的值复制给所有 32 条线程</span><br>
+            sum_val = <span style="color:var(--accent)">__shfl_sync</span>(<br>
+            &nbsp;&nbsp;0xFFFFFFFF, sum_val, <span style="color:var(--accent)">0</span>);
           </div>
-          <div style="margin-top:1.4vh;padding:1vh 1.2vw;background:var(--grey-1)">
-            <span style="font-family:var(--mono);font-size:max(13px,.7vw);color:var(--accent)">结果: 误差 3.7e-09 → 完全正确 ✅</span>
+          <div style="display:flex;flex-direction:column;gap:1vh;margin-top:1vh">
+            <div style="display:flex;align-items:center;gap:1vw;padding:1vh 1.2vw;background:#fff">
+              <div style="font-family:var(--mono);font-size:max(12px,.65vw);color:var(--accent)">__shfl_sync(mask, val, src_lane)</div>
+              <div style="font-family:var(--sans),var(--sans-zh);font-size:max(14px,.8vw);color:var(--text-secondary)">src_lane=0 → 线程 0 的值分发给 Warp 内所有人</div>
+            </div>
+          </div>
+          <div style="margin-top:auto;padding:2vh 1.6vw;background:#fff">
+            <div class="t-cat" style="color:var(--accent)">两步缺一不可</div>
+            <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.9vw);line-height:1.6;color:var(--text-primary);font-weight:400;margin-top:.8vh">
+              <strong>归约</strong> 把 32 个值合并为 1 个（落在 lane 0）<br>
+              <strong>广播</strong> 把这 1 个值复制给人人（所有 lane 都拿到）<br>
+              少一步 → 只有 lane 0 是对的，其他 31 个线程得到错误结果
+            </p>
           </div>
         </div>
       </div>
@@ -496,8 +504,8 @@ __global__ <b>void</b> softmax_warp(<b>const float</b>* x, <b>float</b>* y, <b>i
           <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle)">
             <div style="font-family:var(--sans);font-weight:200;font-size:min(4.4vw,7.8vh);line-height:.9">02</div>
             <div>
-              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;margin-bottom:1vh">归约后必须广播</h3>
-              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">__shfl_down 归约后只有 lane 0 有正确结果——忘了 __shfl_sync 广播，全错了。</p>
+              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;margin-bottom:1vh">归约 + 广播两步走</h3>
+              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">__shfl_down 归约把 32 个值合并到 lane 0，再用 __shfl_sync 广播让所有人拿到最终结果。</p>
             </div>
           </div>
           <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle);border-bottom:2px solid var(--accent)">
