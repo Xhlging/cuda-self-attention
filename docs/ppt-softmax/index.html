@@ -130,26 +130,27 @@
         <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(5.6vw,10vh);line-height:.96;letter-spacing:-.035em">Softmax 是什么？</h2>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:2vw;flex:1">
-        <div class="card-fill" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2vh">
-          <div style="font-family:var(--sans);font-weight:200;font-size:min(5vw,9vh);letter-spacing:-.02em">softmax(x<sub>i</sub>)</div>
-          <div style="width:60%;height:1px;background:var(--border-subtle)"></div>
-          <div style="font-family:var(--sans);font-weight:200;font-size:min(3.6vw,6vh);letter-spacing:-.02em">e<sup>x<sub>i</sub></sup></div>
-          <div style="width:40%;height:1px;background:var(--border-subtle)"></div>
-          <div style="font-family:var(--sans);font-weight:200;font-size:min(3.6vw,6vh);letter-spacing:-.02em">&Sigma; e<sup>x<sub>j</sub></sup></div>
+        <div class="card-fill" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:0;padding:2vh 0">
+          <div style="font-family:var(--sans);font-weight:200;font-size:min(4.4vw,7.5vh);letter-spacing:-.02em;color:var(--text-secondary);margin-bottom:1.6vh">softmax(x<sub>i</sub>) =</div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:0">
+            <div style="font-family:var(--sans);font-weight:200;font-size:min(4vw,7vh);letter-spacing:-.02em;padding:0 .8vw">exp(x<sub>i</sub>)</div>
+            <div style="width:70%;height:2px;background:var(--accent);margin:.8vh 0"></div>
+            <div style="font-family:var(--sans);font-weight:200;font-size:min(2.6vw,4.5vh);letter-spacing:-.02em;padding:0 .8vw">Σ<sub>j</sub> exp(x<sub>j</sub>)</div>
+          </div>
         </div>
         <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh">
           <div class="t-cat" style="color:var(--accent)">直观理解</div>
           <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-primary);font-weight:400">
-            把一组任意实数 → 转成一组<b>概率</b>。
+            把一组任意实数 → 转成一组<b>概率</b>
           </p>
           <p style="font-family:var(--sans),var(--sans-zh);font-size:max(17px,1vw);line-height:1.7;color:var(--text-secondary);font-weight:400">
-            大的数 → 高概率 (接近 1)<br>
-            小的数 → 低概率 (接近 0)<br>
+            大数 → 高概率，小数 → 低概率<br>
             全部加起来 = 1
           </p>
-          <div style="margin-top:1vh;font-family:var(--mono);font-size:max(13px,.72vw);color:var(--text-secondary);line-height:1.6">
-            例: softmax([2, 1, -1])<br>
-            = [0.67, 0.24, 0.09]
+          <div style="margin-top:1vh;font-family:var(--mono);font-size:max(15px,.8vw);color:var(--text-primary);line-height:1.8">
+            softmax([<span style="color:var(--accent)">2</span>, 1, -1])<br>
+            = [<span style="color:var(--accent);font-weight:600">0.67</span>, 0.24, 0.09]<br>
+            <span style="font-size:max(12px,.65vw);color:var(--text-helper)">最大的 2 → 67% 概率</span>
           </div>
         </div>
       </div>
