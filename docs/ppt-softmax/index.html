@@ -180,13 +180,13 @@
         <div class="card-fill" style="display:flex;flex-direction:column;gap:1.6vh;padding:3vh 2vw">
           <span class="t-cat" style="color:var(--accent);font-size:max(15px,.85vw)">GPU 方案</span>
           <p style="font-family:var(--sans),var(--sans-zh);font-size:max(20px,1.2vw);line-height:1.8;color:var(--text-primary);font-weight:400">
-            每个线程独立算一行<br>几千行 → 几千个线程<br>同时并行计算
+            最简单的映射: 一行对应一个线程<br>当维度 D 增大时<br>单线程会成为瓶颈
           </p>
           <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.9vw);color:var(--accent);line-height:1.9;margin-top:1vh;font-weight:500">
-            核心问题: 同一行内<br><strong style="font-size:1.1em">怎么让 32 线程协作？</strong>
+            因此让一个 Warp<br><strong style="font-size:1.1em">共同处理一行数据</strong>
           </p>
           <p style="font-family:var(--sans),var(--sans-zh);font-size:max(13px,.72vw);color:var(--text-helper);line-height:1.6;margin-top:.6vh">
-            NVIDIA GPU 硬件固定 <strong>32 线程 = 1 Warp</strong><br>（从 2012 年 Kepler 到 2025 年 Blackwell 从未变过）<br>Warp 内线程可以单周期交换数据——最快协作方式
+            NVIDIA GPU 当前 Warp Size 为 <strong>32</strong><br>Warp 内线程通过 Warp Shuffle<br>指令直接交换寄存器数据<br>相比共享内存通信，通常具有更低开销
           </p>
         </div>
       </div>
@@ -371,10 +371,9 @@ inv_sum = 1.0f / sum_val;
 sum_val = <span class="fn">__shfl_sync</span>(
     0xFFFFFFFF, sum_val, <span class="num">0</span>);  <span class="cm">// src_lane=0</span></pre>
           <div style="margin-top:1.4vh;padding:2vh 1.6vw;background:#fff">
-            <div class="t-cat" style="color:var(--accent)">两步缺一不可</div>
+            <div class="t-cat" style="color:var(--accent)">Reduction + Broadcast</div>
             <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.9vw);line-height:1.6;color:var(--text-primary);font-weight:400;margin-top:.8vh">
-              <strong>归约</strong> 把 32 个值合并为 1 个（落在 lane 0）<br>
-              <strong>广播</strong> 把这 1 个值复制给人人（所有 lane 都拿到）
+              在当前 Reduction 写法中<br>最终结果保存在 <strong>lane 0</strong><br>随后通过 Broadcast<br>让 Warp 内所有线程获得该结果
             </p>
           </div>
         </div>
@@ -390,9 +389,9 @@ sum_val = <span class="fn">__shfl_sync</span>(
     <div style="flex:1;padding:0;display:flex;flex-direction:column;gap:1.2vh;min-height:0">
       <div style="display:flex;flex-direction:column;gap:.6vh;flex-shrink:0">
         <div class="t-meta">WARP SOFTMAX KERNEL</div>
-        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(3.6vw,6vh);line-height:1;letter-spacing:-.035em">完整代码: 35 行实现 Warp Softmax</h2>
+        <h2 style="font-family:var(--sans),var(--sans-zh);font-weight:200;font-size:min(3.6vw,6vh);line-height:1;letter-spacing:-.035em">完整代码: Warp Softmax</h2>
       </div>
-      <pre class="code-block" style="flex:1;min-height:0;overflow-y:auto;font-size:max(13px,.72vw);line-height:1.7;padding:1.6vh 1.8vw"><span class="cm">// Grid: [rows], Block: [32] — 一行数据恰好一个 Warp 处理</span>
+      <pre class="code-block" style="flex:1;min-height:0;overflow-y:auto;font-size:max(13px,.72vw);line-height:1.7;padding:1.6vh 1.8vw"><span class="cm">// One-Warp-Per-Row: blockDim.x = 32, 一个 Warp 处理一行</span>
 <span class="kw">template</span> &lt;<span class="kw">int</span> D&gt;
 __global__ <span class="kw">void</span> <span class="fn">softmax_warp</span>(
     <span class="kw">const float</span>* __restrict__ input,
@@ -410,13 +409,13 @@ __global__ <span class="kw">void</span> <span class="fn">softmax_warp</span>(
     <span class="kw">for</span> (<span class="kw">int</span> i = lane; i &lt; D; i += <span class="num">32</span>)
         max_val = fmaxf(max_val, x[i]);
 
-    <span class="cm">// ===== Step 2: 蝴蝶归约 + 广播 =====</span>
+    <span class="cm">// ===== Step 2: Max Reduction + Broadcast =====</span>
     <span class="kw">for</span> (<span class="kw">int</span> offset = <span class="num">16</span>; offset &gt; <span class="num">0</span>; offset /= <span class="num">2</span>)
         max_val = fmaxf(max_val,
             <span class="fn">__shfl_down_sync</span>(0xFFFFFFFF, max_val, offset));
     max_val = <span class="fn">__shfl_sync</span>(0xFFFFFFFF, max_val, <span class="num">0</span>);
 
-    <span class="cm">// ===== Step 3: 算 exp + 归约求和 + 广播 =====</span>
+    <span class="cm">// ===== Step 3: Sum Reduction + Broadcast =====</span>
     <span class="kw">float</span> sum_val = <span class="num">0.0f</span>;
     <span class="kw">for</span> (<span class="kw">int</span> i = lane; i &lt; D; i += <span class="num">32</span>) {
         <span class="kw">float</span> e = __expf(x[i] - max_val);
@@ -500,15 +499,15 @@ __global__ <span class="kw">void</span> <span class="fn">softmax_warp</span>(
           <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle)">
             <div style="font-family:var(--sans);font-weight:200;font-size:min(4.4vw,7.8vh);line-height:.9">01</div>
             <div>
-              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;margin-bottom:1vh">线程协作 > 线程单干</h3>
-              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">Warp 内 32 线程分治 + 归约，把串行的 D 次操作变成 D/32 次。</p>
+              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;margin-bottom:1vh">并行度提升而非复杂度降低</h3>
+              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">算法复杂度仍为 O(D)。Warp 内 32 线程协作，每线程处理约 D/32 个元素，单线程工作量显著下降。</p>
             </div>
           </div>
           <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle)">
             <div style="font-family:var(--sans);font-weight:200;font-size:min(4.4vw,7.8vh);line-height:.9">02</div>
             <div>
-              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;margin-bottom:1vh">归约 + 广播两步走</h3>
-              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">__shfl_down 归约把 32 个值合并到 lane 0，再用 __shfl_sync 广播让所有人拿到最终结果。</p>
+              <h3 style="font-family:var(--sans),var(--sans-zh);font-weight:400;font-size:max(18px,1.8vw);line-height:1.2;letter-spacing:-.015em;margin-bottom:1vh">Warp Shuffle 是高效的 Warp 级通信</h3>
+              <p style="font-family:var(--sans),var(--sans-zh);font-size:max(16px,.94vw);line-height:1.6;color:var(--text-secondary);font-weight:400">Reduction 负责聚合结果，Broadcast 负责共享结果。两者共同构成 Warp Softmax 的核心通信机制。</p>
             </div>
           </div>
           <div style="display:grid;grid-template-columns:auto 1fr;gap:2vw;align-items:start;padding:2.6vh 0;border-top:1px solid var(--border-subtle);border-bottom:2px solid var(--accent)">
