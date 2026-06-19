@@ -16,6 +16,22 @@
 \usepackage{float}
 \usepackage{enumitem}
 \usepackage{fancyhdr}
+\setlength{\headheight}{14.5pt}
+\addtolength{\topmargin}{-2.5pt}
+
+% ---- CJK-friendly listings setup ----
+% In xelatex, code comments containing Chinese must render in a CJK-capable font.
+% The fix: use \setCJKmonofont (requires a CJK mono font installed).
+% If the font below is missing, install it or change to one you have:
+%   Linux:   sudo apt install fonts-noto-cjk
+%   macOS:   brew install font-noto-sans-cjk-sc
+%   Windows: included with TeX Live 2021+
+% If you don't want CJK mono, remove the Chinese comments from the code blocks.
+\IfFontExistsTF{Noto Sans Mono CJK SC}{
+  \setCJKmonofont{Noto Sans Mono CJK SC}[Scale=MatchLowercase]
+}{
+  \setCJKmonofont{Noto Sans CJK SC}[Scale=MatchLowercase]
+}
 
 % ---- Code style ----
 \definecolor{codebg}{RGB}{245,245,243}
@@ -26,7 +42,7 @@
 
 \lstdefinestyle{cuda}{
     language=C++,
-    basicstyle=\ttfamily\small,
+    basicstyle=\small,
     backgroundcolor=\color{codebg},
     commentstyle=\color{codecomment}\itshape,
     keywordstyle=\color{codekeyword}\bfseries,
@@ -43,6 +59,9 @@
     captionpos=b,
     aboveskip=10pt,
     belowskip=10pt,
+    % CUDA kernel launch <<<...>>> confuses listings' C++ parser.
+    % Use escapeinside to wrap them in safe mode:
+    escapeinside={(*@}{@*)},
 }
 \lstdefinestyle{python}{
     language=Python,
@@ -179,7 +198,7 @@ $\downarrow$ \\[4pt]
 \verb|softmax_forward_warp()| — contiguous() 检查 + tensor 提取 \\
 $\downarrow$ \\[4pt]
 \textbf{Launch Wrapper} (\verb|softmax_kernel.cu|) \\
-\verb|switch(D)| 模板分发 + \verb|<<<rows, 32>>>| 启动配置 \\
+\\verb|switch(D)| 模板分发 + \\verb|<<<rows, 32>>>| 启动配置 \\\
 $\downarrow$ \\[4pt]
 \textbf{CUDA Kernel} (\verb|softmax_kernel.cu|, nvcc 编译) \\
 \verb|softmax_warp_kernel<D>()| — Warp Shuffle 并行归约 \\
@@ -320,15 +339,15 @@ void softmax_warp_launch(const float* input, float* output,
     // Grid: [rows], Block: [32] — 一行恰好一个 Warp
     switch (D) {
         case 64:  softmax_warp_kernel<64>
-                      <<<rows, 32>>>(input, output, rows, stride); break;
+                      (*@<<<@*)rows, 32(*@>>>@*)(input, output, rows, stride); break;
         case 128: softmax_warp_kernel<128>
-                      <<<rows, 32>>>(input, output, rows, stride); break;
+                      (*@<<<@*)rows, 32(*@>>>@*)(input, output, rows, stride); break;
         case 256: softmax_warp_kernel<256>
-                      <<<rows, 32>>>(input, output, rows, stride); break;
+                      (*@<<<@*)rows, 32(*@>>>@*)(input, output, rows, stride); break;
         case 512: softmax_warp_kernel<512>
-                      <<<rows, 32>>>(input, output, rows, stride); break;
+                      (*@<<<@*)rows, 32(*@>>>@*)(input, output, rows, stride); break;
         case 1024:softmax_warp_kernel<1024>
-                      <<<rows, 32>>>(input, output, rows, stride); break;
+                      (*@<<<@*)rows, 32(*@>>>@*)(input, output, rows, stride); break;
         default:  fprintf(stderr, "Unsupported D=%d\n", D); exit(1);
     }
     CUDA_CHECK(cudaGetLastError());
