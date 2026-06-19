@@ -19,19 +19,23 @@
 \setlength{\headheight}{14.5pt}
 \addtolength{\topmargin}{-2.5pt}
 
-% ---- CJK-friendly listings setup ----
-% In xelatex, code comments containing Chinese must render in a CJK-capable font.
-% The fix: use \setCJKmonofont (requires a CJK mono font installed).
-% If the font below is missing, install it or change to one you have:
-%   Linux:   sudo apt install fonts-noto-cjk
-%   macOS:   brew install font-noto-sans-cjk-sc
-%   Windows: included with TeX Live 2021+
-% If you don't want CJK mono, remove the Chinese comments from the code blocks.
+% ---- Font setup ----
+% 等宽字体需支持制表符(├─│└)和 CJK 注释
+\IfFontExistsTF{DejaVu Sans Mono}{
+  \setmonofont{DejaVu Sans Mono}[Scale=MatchLowercase]       % Linux
+}{\IfFontExistsTF{Consolas}{
+  \setmonofont{Consolas}[Scale=MatchLowercase]               % Windows
+}{\IfFontExistsTF{Menlo}{
+  \setmonofont{Menlo}[Scale=MatchLowercase]                  % macOS
+}{}}}
+% CJK 等宽字体用于 listings 中的中文注释
 \IfFontExistsTF{Noto Sans Mono CJK SC}{
-  \setCJKmonofont{Noto Sans Mono CJK SC}[Scale=MatchLowercase]
-}{
-  \setCJKmonofont{Noto Sans CJK SC}[Scale=MatchLowercase]
-}
+  \setCJKmonofont{Noto Sans Mono CJK SC}[Scale=MatchLowercase]      % Linux
+}{\IfFontExistsTF{NSimSun}{
+  \setCJKmonofont{NSimSun}[Scale=1.05]                               % Windows 新宋体
+}{\IfFontExistsTF{STHeiti Mono}{
+  \setCJKmonofont{STHeiti Mono}[Scale=0.95]                          % macOS
+}{}}}}
 
 % ---- Code style ----
 \definecolor{codebg}{RGB}{245,245,243}
@@ -65,7 +69,7 @@
 }
 \lstdefinestyle{python}{
     language=Python,
-    basicstyle=\ttfamily\small,
+    basicstyle=\small,
     backgroundcolor=\color{codebg},
     commentstyle=\color{codecomment}\itshape,
     keywordstyle=\color{codekeyword}\bfseries,
@@ -80,7 +84,7 @@
     captionpos=b,
 }
 \lstdefinestyle{shell}{
-    basicstyle=\ttfamily\footnotesize,
+    basicstyle=\footnotesize,
     backgroundcolor=\color{codebg},
     frame=single,
     framerule=0.5pt,
